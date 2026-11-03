@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/bridge.dart';
 import '../core/dates.dart';
+import '../core/models.dart';
 import 'dart:io';
 
 import '../core/settings.dart';
@@ -175,7 +176,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
   Widget _accounts(BuildContext context) {
     final t = context.tk;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _title('Cuentas CalDAV', 'Nextcloud, iCloud (contraseña de app), Fastmail, Radicale, Baïkal… Todo se guarda primero en local; sin red, los cambios esperan y se suben al reconectar.'),
+      _title('Cuentas CalDAV',
+          'Nextcloud, iCloud (contraseña de app), Fastmail, Radicale, Baïkal… Puedes indicar una dirección local y otra por VPN (p. ej. Tailscale): se usa la que responda. Todo se guarda primero en local; sin red, los cambios esperan y se suben al reconectar.'),
       for (final a in store.accounts)
         Container(
           margin: const EdgeInsets.only(bottom: 8),
@@ -187,13 +189,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                Text('${a.username} · ${a.baseUrl}', style: TextStyle(fontSize: 11.5, color: t.sec), overflow: TextOverflow.ellipsis),
+                Text('${a.username} · ${a.urls.map(_host).join('  |  ')}', style: TextStyle(fontSize: 11.5, color: t.sec), overflow: TextOverflow.ellipsis),
+                if (a.activeUrl != null)
+                  Text('Conectada por ${_host(a.activeUrl!)}${a.urls.length > 1 ? (a.activeUrl == a.baseUrl ? ' (principal)' : ' (alternativa)') : ''}',
+                      style: TextStyle(fontSize: 11.5, color: t.ok)),
                 Text(
                   a.lastError != null ? 'Último error: ${a.lastError}' : (a.lastSync != null ? 'Sincronizada: ${_ago(a.lastSync!)}' : 'Aún sin sincronizar'),
                   style: TextStyle(fontSize: 11.5, color: a.lastError != null ? t.danger : t.sec),
                 ),
               ]),
             ),
+            TextButton(onPressed: () => showCalDavDialog(context, store, edit: a), child: const Text('Editar')),
             TextButton(onPressed: store.syncState == SyncState.syncing ? null : () => store.syncNow(), child: const Text('Sincronizar')),
             TextButton(
               onPressed: () async {
@@ -206,7 +212,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
           ]),
         ),
       const SizedBox(height: 6),
-      FilledButton.icon(onPressed: () => showAddCalDav(context, store), icon: const Icon(Icons.add_rounded, size: 16), label: const Text('Añadir cuenta CalDAV')),
+      FilledButton.icon(onPressed: () => showCalDavDialog(context, store), icon: const Icon(Icons.add_rounded, size: 16), label: const Text('Añadir cuenta CalDAV')),
       const SizedBox(height: 22),
       _title('Servidor zero-knowledge', 'Próximamente: sincronización entre tus dispositivos con cifrado de extremo a extremo y servidor propio.'),
       const OutlinedButton(onPressed: null, child: Text('Añadir servidor (próximamente)')),
@@ -225,6 +231,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ),
       ),
     ]);
+  }
+
+  String _host(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null || u.host.isEmpty) return url;
+    return u.hasPort ? '${u.host}:${u.port}' : u.host;
   }
 
   String _ago(String iso) {
@@ -358,6 +370,36 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   // ---------------------------------------------------------------- widgets
 
+  static const _fonts = [
+    'Segoe UI', 'Arial', 'Calibri', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Georgia', 'Cambria',
+    'Times New Roman', 'Consolas', 'Helvetica Neue', 'Avenir Next', 'Inter', 'Roboto', 'Ubuntu', 'DejaVu Sans',
+  ];
+
+  Widget _fontPicker(BuildContext context) {
+    final s = store.settings;
+    final current = s.widgetFont;
+    final items = <String?>[null, ..._fonts, if (current != null && !_fonts.contains(current)) current, '__otra'];
+    return DropdownButton<String?>(
+      value: current,
+      items: [
+        for (final f in items)
+          DropdownMenuItem(
+            value: f,
+            child: Text(f == null ? 'Del sistema' : (f == '__otra' ? 'Otra (escribir nombre)…' : f), style: TextStyle(fontFamily: f == '__otra' ? null : f)),
+          ),
+      ],
+      onChanged: (v) async {
+        if (v == '__otra') {
+          final name = await promptText(context, 'Nombre de la fuente instalada', label: 'p. ej. Segoe UI Variable', initial: current ?? '');
+          if (name == null || name.trim().isEmpty) return;
+          v = name.trim();
+        }
+        setState(() => s.widgetFont = v);
+        s.save();
+      },
+    );
+  }
+
   Widget _widgets(BuildContext context) {
     const names = {'calendar': 'Solo calendario', 'agenda': 'Calendario y eventos', 'tasks': 'Tareas'};
     final s = store.settings;
@@ -377,6 +419,43 @@ class _SettingsDialogState extends State<SettingsDialog> {
             },
           ),
         ),
+      const SizedBox(height: 18),
+      _title('Texto de los widgets', 'Los cambios se aplican en unos segundos a los widgets abiertos.'),
+      _row('Fuente', _fontPicker(context)),
+      _row(
+        'Tamaño del texto',
+        Row(children: [
+          Expanded(
+            child: Slider(
+              value: s.widgetFontScale.clamp(0.7, 1.6),
+              min: 0.7,
+              max: 1.6,
+              divisions: 18,
+              label: '${(s.widgetFontScale * 100).round()} %',
+              onChanged: (v) => setState(() => s.widgetFontScale = (v * 20).round() / 20),
+              onChangeEnd: (_) => s.save(),
+            ),
+          ),
+          SizedBox(width: 48, child: Text('${(s.widgetFontScale * 100).round()} %', textAlign: TextAlign.right)),
+        ]),
+      ),
+      Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: context.tk.sidebar, borderRadius: BorderRadius.circular(14)),
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(s.widgetFontScale)),
+          child: DefaultTextStyle.merge(
+            style: TextStyle(fontFamily: s.widgetFont),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('NOVIEMBRE  2026', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 6),
+              const Text('Revisión de sprint', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              Text('10:00 · Trabajo', style: TextStyle(fontSize: 11, color: context.tk.sec)),
+            ]),
+          ),
+        ),
+      ),
       const SizedBox(height: 10),
       if (!store.remembered)
         Text('Consejo: activa «Recordar en este equipo» (Seguridad) para que los widgets se puedan abrir sin la app principal.',
@@ -385,59 +464,136 @@ class _SettingsDialogState extends State<SettingsDialog> {
   }
 }
 
-Future<void> showAddCalDav(BuildContext context, AppStore store) async {
-  final url = TextEditingController(text: 'https://');
-  final user = TextEditingController();
+/// Compatibilidad: alta de cuenta desde otros menús.
+Future<void> showAddCalDav(BuildContext context, AppStore store) => showCalDavDialog(context, store);
+
+/// Alta o edición de una cuenta CalDAV con dirección principal y alternativa, y prueba de conexión.
+Future<void> showCalDavDialog(BuildContext context, AppStore store, {Account? edit}) async {
+  final url = TextEditingController(text: edit?.baseUrl ?? 'https://');
+  final alt = TextEditingController(text: edit == null || edit.altUrls.isEmpty ? '' : edit.altUrls.join(', '));
+  final user = TextEditingController(text: edit?.username ?? '');
   final pass = TextEditingController();
-  final name = TextEditingController();
+  final name = TextEditingController(text: edit?.name ?? '');
   var busy = false;
   String? error;
+  List<Map<String, dynamic>>? probes;
+  List<String> urls() => [url.text.trim(), ...alt.text.split(RegExp(r'[,\s]+')).map((u) => u.trim())].where((u) => u.isNotEmpty && u != 'https://').toList();
   await showDialog<void>(
     context: context,
     builder: (c) => StatefulBuilder(
-      builder: (c, set) => AlertDialog(
-        title: const Text('Añadir cuenta CalDAV', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-        content: SizedBox(
-          width: 400,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: url, decoration: const InputDecoration(hintText: 'URL del servidor (p. ej. https://nube.ejemplo.es/remote.php/dav)')),
-            const SizedBox(height: 8),
-            TextField(controller: user, decoration: const InputDecoration(hintText: 'Usuario')),
-            const SizedBox(height: 8),
-            TextField(controller: pass, obscureText: true, decoration: const InputDecoration(hintText: 'Contraseña (o contraseña de aplicación)')),
-            const SizedBox(height: 8),
-            TextField(controller: name, decoration: const InputDecoration(hintText: 'Nombre de la cuenta (opcional)')),
-            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: TextStyle(color: c.tk.danger, fontSize: 12.5))),
-          ]),
-        ),
-        actions: [
-          TextButton(onPressed: busy ? null : () => Navigator.pop(c), child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: busy
-                ? null
-                : () async {
-                    set(() {
-                      busy = true;
-                      error = null;
-                    });
-                    try {
-                      final r = await Core.callAsync('caldav.add', {'url': url.text.trim(), 'username': user.text.trim(), 'password': pass.text, 'name': name.text.trim()}) as Map;
-                      store.reload();
-                      if (c.mounted) {
-                        Navigator.pop(c);
-                        showInfo(context, 'Cuenta añadida con ${(r['calendars'] as List).length} calendarios.');
-                      }
-                    } catch (e) {
-                      set(() {
-                        busy = false;
-                        error = e.toString();
-                      });
-                    }
-                  },
-            child: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Conectar'),
+      builder: (c, set) {
+        Future<void> test() async {
+          set(() {
+            busy = true;
+            error = null;
+            probes = null;
+          });
+          try {
+            final r = await Core.callAsync('caldav.test', {
+              'urls': urls(),
+              'username': user.text.trim(),
+              'password': pass.text,
+              if (edit != null) 'accountId': edit.id,
+            }) as List;
+            set(() => probes = r.cast<Map<String, dynamic>>());
+          } catch (e) {
+            set(() => error = e.toString());
+          } finally {
+            set(() => busy = false);
+          }
+        }
+
+        Future<void> save() async {
+          set(() {
+            busy = true;
+            error = null;
+          });
+          try {
+            if (edit == null) {
+              final r = await Core.callAsync('caldav.add', {'urls': urls(), 'username': user.text.trim(), 'password': pass.text, 'name': name.text.trim()}) as Map;
+              store.reload();
+              if (c.mounted) {
+                Navigator.pop(c);
+                showInfo(context, 'Cuenta añadida con ${(r['calendars'] as List).length} calendarios.');
+              }
+            } else {
+              Core.call('caldav.update', {
+                'id': edit.id,
+                'name': name.text.trim(),
+                'urls': urls(),
+                'username': user.text.trim(),
+                if (pass.text.isNotEmpty) 'password': pass.text,
+              });
+              store.reload();
+              if (c.mounted) Navigator.pop(c);
+              await store.syncNow();
+            }
+          } catch (e) {
+            set(() {
+              busy = false;
+              error = e.toString();
+            });
+          }
+        }
+
+        final t = c.tk;
+        return AlertDialog(
+          title: Text(edit == null ? 'Añadir cuenta CalDAV' : 'Editar «${edit.name}»', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                TextField(controller: url, decoration: const InputDecoration(labelText: 'Dirección principal', hintText: 'p. ej. http://192.168.1.10:5232/usuario/')),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: alt,
+                  decoration: const InputDecoration(labelText: 'Dirección alternativa (opcional)', hintText: 'p. ej. https://nas.tu-red.ts.net:5232/usuario/ (VPN, Tailscale…)'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 4),
+                  child: Text('Se prueba primero la última que funcionó. Puedes poner varias separadas por comas.', style: TextStyle(fontSize: 11, color: t.sec)),
+                ),
+                const SizedBox(height: 8),
+                TextField(controller: user, decoration: const InputDecoration(labelText: 'Usuario')),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: pass,
+                  obscureText: true,
+                  decoration: InputDecoration(labelText: edit == null ? 'Contraseña (o contraseña de aplicación)' : 'Contraseña (déjala vacía para no cambiarla)'),
+                ),
+                const SizedBox(height: 8),
+                TextField(controller: name, decoration: const InputDecoration(labelText: 'Nombre de la cuenta (opcional)')),
+                if (probes != null) ...[
+                  const SizedBox(height: 12),
+                  for (final p in probes!)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Icon(p['ok'] == true ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 16, color: p['ok'] == true ? t.ok : t.danger),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p['ok'] == true ? '${p['url']} · responde en ${p['ms']} ms' : '${p['url']} · ${p['error'] ?? 'no responde'}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ]),
+                    ),
+                ],
+                if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: TextStyle(color: t.danger, fontSize: 12.5))),
+              ]),
+            ),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(c), child: const Text('Cancelar')),
+            OutlinedButton(onPressed: busy ? null : test, child: const Text('Probar conexión')),
+            FilledButton(
+              onPressed: busy ? null : save,
+              child: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Text(edit == null ? 'Conectar' : 'Guardar'),
+            ),
+          ],
+        );
+      },
     ),
   );
 }
@@ -464,6 +620,7 @@ Future<void> changeDataFolder(BuildContext context, AppStore store) async {
       await store.useDataAt(dir);
     } else if (!store.unlocked) {
       // Antes de crear o abrir la bóveda: solo se cambia la ubicación.
+      store.settings.customFolder = dir != appDataDir();
       store.settings.vaultPath = target;
       store.settings.save();
       store.reload();

@@ -8,6 +8,7 @@ pub mod backup;
 pub mod caldav;
 pub mod db;
 pub mod desktop;
+pub mod endpoints;
 pub mod error;
 pub mod ffi;
 pub mod ics;

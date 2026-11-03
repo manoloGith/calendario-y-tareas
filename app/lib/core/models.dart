@@ -77,21 +77,29 @@ class Calendar {
 }
 
 class Account {
-  Account({required this.id, required this.name, required this.baseUrl, required this.username, this.lastSync, this.lastError});
+  Account({required this.id, required this.name, required this.baseUrl, required this.username, this.altUrls = const [], this.activeUrl, this.lastSync, this.lastError});
   factory Account.fromJson(Map<String, dynamic> j) => Account(
         id: j['id'] as String,
         name: j['name'] as String? ?? '',
         baseUrl: j['baseUrl'] as String? ?? '',
+        altUrls: (j['altUrls'] as List?)?.cast<String>() ?? const [],
+        activeUrl: j['activeUrl'] as String?,
         username: j['username'] as String? ?? '',
         lastSync: j['lastSync'] as String?,
         lastError: j['lastError'] as String?,
       );
   final String id;
   final String name;
+  /// Dirección principal (p. ej. IP local) y alternativas (p. ej. VPN/Tailscale).
   final String baseUrl;
+  final List<String> altUrls;
+  /// Última dirección que respondió.
+  final String? activeUrl;
   final String username;
   final String? lastSync;
   final String? lastError;
+
+  List<String> get urls => [baseUrl, ...altUrls];
 }
 
 class EventData {

@@ -276,16 +276,39 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
         "caldav.add" => {
             // El descubrimiento usa la red: se hace sin retener el bloqueo de la bóveda.
             let name: String = opt(a, "name").unwrap_or_default();
-            let url: String = p(a, "url")?;
+            let urls = urls_param(a)?;
             let user: String = p(a, "username")?;
             let pass: String = p(a, "password")?;
             let (path, pw) = with(|v| Ok(v.credentials()))?;
             let tmp = Vault::open(&path, &pw)?;
-            let (acc, cals) = tmp.add_caldav(&name, &url, &user, &pass)?;
+            let (acc, cals) = tmp.add_caldav(&name, &urls, &user, &pass)?;
             drop(tmp);
             let res = vault::sync_accounts(&path, &pw, Some(&acc.id))?;
             json!({"account": acc, "calendars": cals, "sync": sync_json(res)})
         }
+        "caldav.test" => {
+            // Prueba cada dirección indicada (o las de una cuenta guardada) y devuelve el resultado de cada una.
+            let (urls, user, pass) = match opt::<String>(a, "accountId") {
+                Some(id) => {
+                    let acc = with(|v| v.db.account(&id))?;
+                    let urls = opt::<Vec<String>>(a, "urls").unwrap_or_else(|| acc.urls());
+                    let pass = opt::<String>(a, "password").filter(|p| !p.is_empty()).unwrap_or(acc.password);
+                    (urls, opt::<String>(a, "username").filter(|u| !u.is_empty()).unwrap_or(acc.username), pass)
+                }
+                None => (urls_param(a)?, p(a, "username")?, p(a, "password")?),
+            };
+            let urls = crate::endpoints::normalize(&urls)?;
+            let dav = crate::caldav::Dav::quick(&user, &pass)?;
+            let probes: Vec<_> = urls.iter().map(|u| crate::endpoints::probe(u, |x| crate::caldav::check(&dav, x))).collect();
+            json!(probes)
+        }
+        "caldav.update" => with(|v| {
+            let urls: Option<Vec<String>> = opt(a, "urls");
+            let name: Option<String> = opt(a, "name");
+            let user: Option<String> = opt(a, "username");
+            let pass: Option<String> = opt(a, "password");
+            Ok(json!(v.update_caldav(&p::<String>(a, "id")?, name.as_deref(), urls.as_deref(), user.as_deref(), pass.as_deref())?))
+        })?,
         "caldav.remove" => with(|v| {
             v.db.delete_account(&p::<String>(a, "id")?)?;
             Ok(json!(true))
@@ -378,4 +401,12 @@ fn sync_json(res: Vec<(String, std::result::Result<crate::caldav::SyncStats, Str
             })
             .collect(),
     )
+}
+
+/// Direcciones de una petición: `urls` (lista) o `url` (una sola, versiones anteriores).
+fn urls_param(a: &Value) -> Result<Vec<String>> {
+    if let Some(v) = opt::<Vec<String>>(a, "urls") {
+        return Ok(v);
+    }
+    Ok(vec![p::<String>(a, "url")?])
 }

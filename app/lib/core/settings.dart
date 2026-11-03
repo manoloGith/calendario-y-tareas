@@ -104,7 +104,11 @@ class WidgetPrefs {
 
 class Settings {
   Settings._(this.file, Map<String, dynamic> j)
-      : vaultPath = j['vaultPath'] as String? ?? joinPath(appDataDir(), 'datos.calendario'),
+      : customFolder = j['customFolder'] as bool? ?? false,
+        vaultPath = _resolveVault(j['vaultPath'] as String?, j['customFolder'] as bool? ?? false),
+        widgetFont = j['widgetFont'] as String?,
+        widgetFontScale = ((j['widgetFontScale'] as num?) ?? 1.0).toDouble(),
+        trayHintShown = j['trayHintShown'] as bool? ?? false,
         themeMode = j['themeMode'] as String? ?? 'system',
         defaultCalendarId = j['defaultCalendarId'] as String?,
         defaultListId = j['defaultListId'] as String?,
@@ -118,6 +122,12 @@ class Settings {
 
   final File file;
   String vaultPath;
+  /// El usuario eligió expresamente otra carpeta (si no, mandan los datos de «datos/» junto a la app).
+  bool customFolder;
+  /// Fuente y tamaño del texto de los widgets (null = fuente del sistema).
+  String? widgetFont;
+  double widgetFontScale;
+  bool trayHintShown;
   /// "system", "light" o "dark"
   String themeMode;
   String? defaultCalendarId;
@@ -139,7 +149,11 @@ class Settings {
 
   void save() {
     final j = {
-      'vaultPath': vaultPath,
+      'vaultPath': toStoredPath(vaultPath),
+      'customFolder': customFolder,
+      'widgetFont': widgetFont,
+      'widgetFontScale': widgetFontScale,
+      'trayHintShown': trayHintShown,
       'themeMode': themeMode,
       'defaultCalendarId': defaultCalendarId,
       'defaultListId': defaultListId,
@@ -172,3 +186,57 @@ bool appAlive() {
 
 /// Petición de un widget a la app principal (p. ej. abrir un día con el formulario de nuevo evento).
 File requestFile() => File(joinPath(appDataDir(), 'peticion.json'));
+
+/// Carpeta de la aplicación (donde está el ejecutable o, en macOS, el .app).
+String appBaseDir() => File(portableDir()).parent.path;
+
+/// Las rutas dentro de la carpeta de la app se guardan relativas: así siguen valiendo si el USB
+/// cambia de letra de unidad o la carpeta se copia a otro equipo.
+String toStoredPath(String path) {
+  final base = appBaseDir() + Platform.pathSeparator;
+  final cmp = Platform.isWindows ? path.toLowerCase().startsWith(base.toLowerCase()) : path.startsWith(base);
+  return cmp ? path.substring(base.length) : path;
+}
+
+String fromStoredPath(String stored) {
+  final isAbs = stored.startsWith('/') || stored.startsWith(r'\\') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(stored);
+  return isAbs ? stored : joinPath(appBaseDir(), stored);
+}
+
+/// Datos a usar al arrancar:
+///  1. la carpeta elegida expresamente por el usuario, si existe;
+///  2. si no, «datos/datos.calendario» junto a la app, si existe;
+///  3. si no, la ruta guardada (versiones anteriores), si existe;
+///  4. si no, «datos/» junto a la app (allí se crearán).
+String _resolveVault(String? stored, bool custom) {
+  final configured = stored == null ? null : fromStoredPath(stored);
+  final portable = joinPath(appDataDir(), 'datos.calendario');
+  if (custom && configured != null && File(configured).existsSync()) return configured;
+  if (File(portable).existsSync()) return portable;
+  if (configured != null && File(configured).existsSync()) return configured;
+  return portable;
+}
+
+RandomAccessFile? _lock;
+
+/// Instancia única: devuelve false si otro proceso ya tiene el bloqueo `name`.
+/// Si el bloqueo no se puede crear (carpeta sin permisos), no se impide el arranque.
+bool acquireInstanceLock(String name) {
+  RandomAccessFile raf;
+  try {
+    raf = File(joinPath(appDataDir(), '$name.lock')).openSync(mode: FileMode.append);
+  } catch (_) {
+    return true;
+  }
+  try {
+    raf.lockSync(FileLock.exclusive); // no bloqueante: falla si ya está cogido
+    _lock = raf; // se mantiene abierto mientras viva el proceso
+    return true;
+  } catch (_) {
+    raf.closeSync();
+    return false;
+  }
+}
+
+/// Mantiene la referencia para que el analizador no avise de que no se usa.
+bool get holdsInstanceLock => _lock != null;

@@ -1,6 +1,7 @@
 //! La «bóveda»: base de datos cifrada abierta + reglas de negocio (recurrencias, listas inteligentes,
 //! archivos .ics enlazados, cuentas CalDAV y avisos).
 use crate::caldav::{self, Dav, SyncStats};
+use crate::endpoints;
 use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::ics;
@@ -756,13 +757,35 @@ impl Vault {
 
     // ---------------------------------------------------------------- CalDAV
 
-    pub fn add_caldav(&self, name: &str, url: &str, user: &str, pass: &str) -> Result<(Account, Vec<Calendar>)> {
+    /// Alta de una cuenta con una o varias direcciones del mismo servidor (local, VPN…).
+    /// Se usa la primera que responda para descubrir los calendarios.
+    pub fn add_caldav(&self, name: &str, urls: &[String], user: &str, pass: &str) -> Result<(Account, Vec<Calendar>)> {
+        let urls = endpoints::normalize(urls)?;
         let dav = Dav::new(user, pass)?;
-        let (principal, home, remotes) = caldav::discover(&dav, url)?;
+        let mut errors = vec![];
+        let mut found = None;
+        for u in &urls {
+            match caldav::discover(&dav, u) {
+                Ok(r) => {
+                    found = Some((u.clone(), r));
+                    break;
+                }
+                Err(e) => errors.push(format!("{}: {e}", endpoints::host(u))),
+            }
+        }
+        let Some((active, (principal, home, remotes))) = found else {
+            return Err(if errors.iter().all(|e| e.contains("red")) {
+                Error::Net(errors.join("; "))
+            } else {
+                Error::CalDav(errors.join("; "))
+            });
+        };
         let acc = Account {
             id: uuid::Uuid::new_v4().to_string(),
-            name: if name.trim().is_empty() { host_of(url) } else { name.trim().to_string() },
-            base_url: url.trim().to_string(),
+            name: if name.trim().is_empty() { host_of(&urls[0]) } else { name.trim().to_string() },
+            base_url: urls[0].clone(),
+            alt_urls: urls[1..].to_vec(),
+            active_url: Some(active),
             username: user.to_string(),
             password: pass.to_string(),
             principal_url: Some(principal),
@@ -785,10 +808,37 @@ impl Vault {
         Ok((acc, cals))
     }
 
+    /// Cambia nombre, direcciones o credenciales de una cuenta.
+    pub fn update_caldav(&self, id: &str, name: Option<&str>, urls: Option<&[String]>, user: Option<&str>, pass: Option<&str>) -> Result<Account> {
+        let mut acc = self.db.account(id)?;
+        if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            acc.name = n.to_string();
+        }
+        if let Some(u) = urls {
+            let urls = endpoints::normalize(u)?;
+            acc.base_url = urls[0].clone();
+            acc.alt_urls = urls[1..].to_vec();
+            if !acc.urls().iter().any(|u| Some(u) == acc.active_url.as_ref()) {
+                acc.active_url = None;
+            }
+        }
+        if let Some(u) = user.filter(|u| !u.is_empty()) {
+            acc.username = u.to_string();
+        }
+        if let Some(p) = pass.filter(|p| !p.is_empty()) {
+            acc.password = p.to_string();
+        }
+        self.db.save_account(&acc)?;
+        Ok(acc)
+    }
+
     pub fn create_remote_calendar(&self, account_id: &str, name: &str, color: &str, kind: &str) -> Result<Calendar> {
         let acc = self.db.account(account_id)?;
         let dav = Dav::new(&acc.username, &acc.password)?;
         let home = acc.home_url.clone().ok_or_else(|| Error::CalDav("cuenta sin calendar-home-set".into()))?;
+        let quick = Dav::quick(&acc.username, &acc.password)?;
+        let active = endpoints::pick(&acc.urls(), acc.active_url.as_deref(), |u| caldav::check(&quick, &endpoints::rebase(&home, u)?))?;
+        let home = endpoints::rebase(&home, &active)?;
         let url = caldav::make_calendar(&dav, &home, name, color, kind)?;
         let mut c = new_calendar(name.into(), color.into(), SOURCE_CALDAV);
         c.kind = kind.into();
@@ -806,9 +856,17 @@ pub fn sync_accounts(path: &Path, password: &str, account_id: Option<&str>) -> R
     let mut out = vec![];
     for mut acc in db.accounts()?.into_iter().filter(|a| account_id.map(|id| id == a.id).unwrap_or(true)) {
         let res = (|| -> Result<SyncStats> {
+            // Elegir la dirección que responde (local, VPN…), empezando por la última que funcionó.
+            let quick = Dav::quick(&acc.username, &acc.password)?;
+            let probe_url = acc.home_url.clone().or(acc.principal_url.clone()).unwrap_or(acc.base_url.clone());
+            let active = endpoints::pick(&acc.urls(), acc.active_url.as_deref(), |u| caldav::check(&quick, &endpoints::rebase(&probe_url, u)?))?;
+            acc.active_url = Some(active.clone());
             let dav = Dav::new(&acc.username, &acc.password)?;
             let mut total = SyncStats::default();
-            for cal in db.calendars()?.into_iter().filter(|c| c.account_id.as_deref() == Some(&acc.id)) {
+            for mut cal in db.calendars()?.into_iter().filter(|c| c.account_id.as_deref() == Some(&acc.id)) {
+                if let Some(u) = &cal.remote_url {
+                    cal.remote_url = Some(endpoints::rebase(u, &active)?);
+                }
                 let pending = db.remote_meta("events", &cal.id)?.iter().any(|m| m.dirty)
                     || db.remote_meta("tasks", &cal.id)?.iter().any(|m| m.dirty);
                 let remote_ctag = caldav::ctag(&dav, cal.remote_url.as_deref().unwrap_or(""));

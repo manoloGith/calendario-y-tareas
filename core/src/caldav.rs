@@ -129,8 +129,18 @@ pub struct Reply {
 
 impl Dav {
     pub fn new(user: &str, pass: &str) -> Result<Dav> {
+        Self::with_timeout(user, pass, Duration::from_secs(30))
+    }
+
+    /// Cliente con tiempo de espera corto para comprobar si una dirección responde.
+    pub fn quick(user: &str, pass: &str) -> Result<Dav> {
+        Self::with_timeout(user, pass, crate::endpoints::PROBE_TIMEOUT)
+    }
+
+    fn with_timeout(user: &str, pass: &str, timeout: Duration) -> Result<Dav> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(timeout)
+            .connect_timeout(timeout.min(Duration::from_secs(5)))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("CalendarioYTareas/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -484,5 +494,22 @@ mod tests {
         assert_eq!(r[0].components, vec!["VEVENT", "VTODO"]);
         assert!(!r[0].props.contains_key("missing"));
         assert_eq!(r[1].props.get("current-user-principal").map(|s| s.as_str()), Some("/p/u/"));
+    }
+}
+
+/// Comprueba que la dirección responde como servidor WebDAV/CalDAV (y que las credenciales valen).
+pub fn check(dav: &Dav, url: &str) -> Result<()> {
+    let u = Url::parse(url).map_err(|e| Error::Invalid(e.to_string()))?;
+    let r = dav.request(
+        "PROPFIND",
+        &u,
+        Some("0"),
+        Some(r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>"#.into()),
+        &[],
+    )?;
+    if r.status.as_u16() == 207 || r.status.is_success() {
+        Ok(())
+    } else {
+        Err(Error::CalDav(format!("respuesta inesperada ({})", r.status)))
     }
 }

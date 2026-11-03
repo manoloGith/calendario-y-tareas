@@ -1,8 +1,11 @@
 // Primera ejecución (crear bóveda) y desbloqueo.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/bridge.dart';
+import '../core/settings.dart';
 import '../core/store.dart';
 import 'common.dart';
 import 'settings_dialog.dart';
@@ -58,6 +61,57 @@ class _UnlockPageState extends State<UnlockPage> {
       await widget.store.launchWidgets();
     } on CoreError catch (e) {
       setState(() => error = useKeyring ? null : e.message);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  /// Usa los datos de otra carpeta (por ejemplo, la carpeta «datos» copiada de otro equipo o de un USB).
+  Future<void> _openExisting() async {
+    final dir = await pickFile(mode: 'folder', title: 'Carpeta con tus datos (contiene datos.calendario)');
+    if (dir == null || !mounted) return;
+    var target = joinPath(dir, 'datos.calendario');
+    if (!File(target).existsSync()) {
+      // También vale elegir la carpeta de la app: se busca su subcarpeta «datos».
+      final inner = joinPath(joinPath(dir, 'datos'), 'datos.calendario');
+      if (File(inner).existsSync()) {
+        target = inner;
+      } else {
+        setState(() => error = 'En esa carpeta no hay datos de Calendario y Tareas (falta datos.calendario).');
+        return;
+      }
+    }
+    widget.store.settings
+      ..vaultPath = target
+      ..customFolder = File(target).parent.path != appDataDir();
+    widget.store.settings.save();
+    setState(() => error = null);
+  }
+
+  /// Crea datos nuevos con la contraseña indicada y les vuelca una copia de seguridad.
+  Future<void> _importBackup() async {
+    if (pw.text.length < 8 || pw.text != pw2.text) {
+      setState(() => error = 'Escribe arriba la contraseña para los datos nuevos (dos veces, mínimo 8 caracteres) y vuelve a pulsar «Importar copia».');
+      return;
+    }
+    final file = await pickFile(title: 'Copia de seguridad a importar', extensions: ['calbak'], filterName: 'Copia cifrada');
+    if (file == null || !mounted) return;
+    final bpw = await promptText(context, 'Contraseña de la copia', obscure: true);
+    if (bpw == null || !mounted) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      // Primero se comprueba la copia, para no crear datos vacíos si la contraseña no es correcta.
+      await Core.callAsync('backup.inspect', {'path': file, 'password': bpw});
+      await widget.store.create(pw.text, remember: remember);
+      await Core.callAsync('backup.restore', {'path': file, 'password': bpw, 'replace': true});
+      widget.store.rememberSessionPassword(pw.text);
+      widget.store.reload();
+      await widget.store.launchWidgets();
+    } on CoreError catch (e) {
+      if (mounted) setState(() => error = e.message);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -142,8 +196,25 @@ class _UnlockPageState extends State<UnlockPage> {
                             await changeDataFolder(context, widget.store);
                             if (mounted) setState(() => error = null);
                           },
-                    child: Text(creating ? 'Guardar los datos en otra carpeta…' : 'Abrir datos de otra carpeta…', style: const TextStyle(fontSize: 12)),
+                    child: Text(creating ? 'Crear los datos en otra carpeta…' : 'Abrir datos de otra carpeta…', style: const TextStyle(fontSize: 12)),
                   ),
+                  if (creating) ...[
+                    Divider(height: 22, color: t.border),
+                    Text('¿Ya tienes datos?', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.sec)),
+                    const SizedBox(height: 6),
+                    Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 6, children: [
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : _openExisting,
+                        icon: const Icon(Icons.folder_open_rounded, size: 16),
+                        label: const Text('Abrir datos de una carpeta…'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : _importBackup,
+                        icon: const Icon(Icons.restore_rounded, size: 16),
+                        label: const Text('Importar copia (.calbak)…'),
+                      ),
+                    ]),
+                  ],
                 ]),
               ),
             ),

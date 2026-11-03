@@ -65,6 +65,8 @@ class AppStore extends ChangeNotifier {
 
   /// Día para el que hay que abrir el formulario de nuevo evento (doble clic en un widget).
   DateTime? pendingNewEvent;
+  /// Crear una tarea nueva al mostrar la ventana (menú de la bandeja).
+  bool requestNewTask = false;
 
   SyncState syncState = SyncState.idle;
   String syncMessage = '';
@@ -353,6 +355,7 @@ class AppStore extends ChangeNotifier {
     try {
       await Core.callAsync('vault.relocate', {'path': target});
       settings.vaultPath = target;
+      settings.customFolder = folder != appDataDir();
       settings.save();
     } finally {
       reload();
@@ -365,6 +368,7 @@ class AppStore extends ChangeNotifier {
     await stopWidgets();
     if (unlocked) lock();
     settings.vaultPath = joinPath(folder, 'datos.calendario');
+    settings.customFolder = folder != appDataDir();
     settings.save();
     notifyListeners();
   }

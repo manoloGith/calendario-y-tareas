@@ -26,7 +26,7 @@ fn two_devices_offline_first_sync() {
     // Dispositivo A: alta de cuenta y calendario remoto nuevo.
     let pa = tmp("a");
     let a = Vault::create(&pa, PW).unwrap();
-    let (acc, _) = a.add_caldav("Radicale", &url, &user, "x").unwrap();
+    let (acc, _) = a.add_caldav("Radicale", &[url.clone()], &user, "x").unwrap();
     let cal = a.create_remote_calendar(&acc.id, "Proyectos", "#AF52DE", "both").unwrap();
     let ev = a.quick_event("Taller de cifrado el miércoles a las 11:00", &cal.id).unwrap();
     let parent = a.quick_task("Revisar PR 142 mañana #revisión !!", &cal.id, None).unwrap();
@@ -40,7 +40,7 @@ fn two_devices_offline_first_sync() {
     // Dispositivo B: misma cuenta, descarga todo.
     let pb = tmp("b");
     let b = Vault::create(&pb, PW).unwrap();
-    b.add_caldav("Radicale", &url, &user, "x").unwrap();
+    b.add_caldav("Radicale", &[url.clone()], &user, "x").unwrap();
     vault::sync_accounts(&pb, PW, None).unwrap();
     let bcal = b.db.calendars().unwrap().into_iter().find(|c| c.name == "Proyectos").unwrap();
     assert_eq!(b.db.events_in_calendar(&bcal.id).unwrap().len(), 1);
@@ -79,7 +79,7 @@ fn two_devices_offline_first_sync() {
     assert_eq!(a.db.event(&ev.id).unwrap().location, "Sala Turing");
 
     // Sin red: el alta falla con un error de red y los datos locales siguen intactos.
-    let err = a.add_caldav("Caído", "http://127.0.0.1:5999/", "x", "y").unwrap_err();
+    let err = a.add_caldav("Caído", &["http://127.0.0.1:5999/".to_string()], "x", "y").unwrap_err();
     assert!(err.to_string().contains("red"), "{err}");
     assert_eq!(a.db.events_in_calendar(&cal.id).unwrap().len(), 1);
 }
@@ -106,4 +106,43 @@ fn ignores_unknown_when_no_server() {
     v.db.save_calendar(&mut c).unwrap();
     v.quick_event("Algo mañana a las 10", &c.id).unwrap();
     assert_eq!(v.db.pending_changes().unwrap(), 1);
+}
+
+#[test]
+fn local_and_vpn_addresses() {
+    let Ok(base) = std::env::var("CALDAV_TEST_URL") else {
+        eprintln!("CALDAV_TEST_URL no definida: prueba omitida");
+        return;
+    };
+    let user = format!("v{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let good = format!("{}/{}/", base.trim_end_matches('/'), user);
+    // «Local» caída (puerto cerrado) y «VPN» funcionando.
+    let local = format!("http://127.0.0.1:5999/{user}/");
+    let p = tmp("vpn");
+    let v = Vault::create(&p, PW).unwrap();
+    let (acc, _) = v.add_caldav("Casa", &[local.clone(), good.clone()], &user, "x").unwrap();
+    assert_eq!(acc.base_url, local);
+    assert_eq!(acc.alt_urls, vec![good.clone()]);
+    assert_eq!(acc.active_url.as_deref(), Some(good.as_str()));
+    let cal = v.create_remote_calendar(&acc.id, "Familia", "#FFCC00", "both").unwrap();
+    v.quick_event("Cena el viernes a las 21h", &cal.id).unwrap();
+    // Se olvida cuál funcionó: la sincronización debe probar la local, fallar y usar la VPN.
+    let mut a2 = v.db.account(&acc.id).unwrap();
+    a2.active_url = None;
+    v.db.save_account(&a2).unwrap();
+    let r = vault::sync_accounts(&p, PW, None).unwrap();
+    assert_eq!(r[0].1.as_ref().unwrap().uploaded, 1, "{r:?}");
+    assert_eq!(v.db.account(&acc.id).unwrap().active_url.as_deref(), Some(good.as_str()));
+    // Prueba de conexión desde la API: una dirección falla y la otra responde.
+    let probes = calendario_core::api::handle(
+        &serde_json::json!({"method": "caldav.test", "params": {"urls": [local, good], "username": user, "password": "x"}}).to_string(),
+    );
+    let j: serde_json::Value = serde_json::from_str(&probes).unwrap();
+    assert_eq!(j["data"][0]["ok"], serde_json::json!(false));
+    assert_eq!(j["data"][1]["ok"], serde_json::json!(true));
+    // Si ninguna responde: error de red claro, y los datos siguen en local.
+    v.update_caldav(&acc.id, None, Some(&["http://127.0.0.1:5998/".to_string(), "http://127.0.0.1:5997/".to_string()]), None, None).unwrap();
+    let r = vault::sync_accounts(&p, PW, None).unwrap();
+    assert!(r[0].1.as_ref().unwrap_err().contains("ninguna dirección"));
+    assert_eq!(v.db.events_in_calendar(&cal.id).unwrap().len(), 1);
 }

@@ -24,8 +24,13 @@ const widgetSizes = {
 
 String widgetTitle(String kind) => 'CalendarioWidget-$kind';
 
-final _lightTheme = buildTheme(Tokens.light).copyWith(scaffoldBackgroundColor: Colors.transparent);
-final _darkTheme = buildTheme(Tokens.darkTokens).copyWith(scaffoldBackgroundColor: Colors.transparent);
+final _themes = <String, ThemeData>{};
+
+/// Temas por fuente (se crean una vez: reconstruirlos en cada refresco provocaba repintados).
+ThemeData _theme(bool dark, String? font) => _themes.putIfAbsent(
+      '$dark|${font ?? ''}',
+      () => buildTheme(dark ? Tokens.darkTokens : Tokens.light, fontFamily: font).copyWith(scaffoldBackgroundColor: Colors.transparent),
+    );
 
 /// Clave de un monitor: nombre + resolución física + escala (sirve también al cambiar de equipo con un USB).
 String monitorKey(Display d) {
@@ -85,6 +90,8 @@ Future<Rect> initialBounds(String kind, WidgetPrefs prefs) async {
 }
 
 Future<void> runDesktopWidget(String kind, String vaultPath) async {
+  // Un solo proceso por tipo de widget.
+  if (!acquireInstanceLock('widget-$kind')) exit(0);
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
   final settings = Settings.load()..vaultPath = vaultPath;
@@ -154,7 +161,7 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
     super.initState();
     windowManager.addListener(this);
     _beat();
-    heartbeat = Timer.periodic(const Duration(seconds: 5), (_) => _beat());
+    heartbeat = Timer.periodic(const Duration(seconds: 3), (_) => _beat());
   }
 
   void _beat() {
@@ -163,7 +170,14 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
       // Si se desactiva desde Ajustes, el widget se cierra solo.
       final s = Settings.load();
       if (!s.widgets[widget.kind]!.enabled) exit(0);
-      if (s.themeMode != widget.store.settings.themeMode) setState(() => widget.store.settings.themeMode = s.themeMode);
+      final cur = widget.store.settings;
+      if (s.themeMode != cur.themeMode || s.widgetFont != cur.widgetFont || s.widgetFontScale != cur.widgetFontScale) {
+        setState(() {
+          cur.themeMode = s.themeMode;
+          cur.widgetFont = s.widgetFont;
+          cur.widgetFontScale = s.widgetFontScale;
+        });
+      }
     } catch (_) {}
   }
 
@@ -203,13 +217,19 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
   Widget build(BuildContext context) {
     final mode = switch (widget.store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system };
     // El MaterialApp no se reconstruye con cada refresco de datos: solo el contenido del widget.
+    final font = widget.store.settings.widgetFont;
+    final scale = widget.store.settings.widgetFontScale.clamp(0.7, 1.6);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: _lightTheme,
-      darkTheme: _darkTheme,
+      theme: _theme(false, font),
+      darkTheme: _theme(true, font),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
       localizationsDelegates: const [SpanishMaterialDelegate()],
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale.toDouble())),
+        child: child!,
+      ),
       home: Scaffold(
         backgroundColor: Colors.transparent,
         body: DragToResizeArea(
@@ -334,6 +354,9 @@ class _Header extends StatelessWidget {
           ],
           onSelected: (v) async {
             if (v == 'open') {
+              try {
+                Core.call('sys.allowForeground');
+              } catch (_) {}
               await Process.start(Platform.resolvedExecutable, const [], mode: ProcessStartMode.detached);
             } else {
               final s = Settings.load();

@@ -51,6 +51,22 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 "#;
 
+/// Añade columnas nuevas a bases de datos creadas con versiones anteriores.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has = |table: &str, col: &str| -> Result<bool> {
+        let mut st = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let cols = st.query_map([], |r| r.get::<_, String>(1))?.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(cols.iter().any(|c| c == col))
+    };
+    if !has("accounts", "alt_urls")? {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN alt_urls TEXT NOT NULL DEFAULT '[]'")?;
+    }
+    if !has("accounts", "active_url")? {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN active_url TEXT")?;
+    }
+    Ok(())
+}
+
 pub struct Db {
     pub conn: Connection,
 }
@@ -85,6 +101,7 @@ impl Db {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
@@ -126,13 +143,17 @@ impl Db {
 
     pub fn accounts(&self) -> Result<Vec<Account>> {
         let mut st = self.conn.prepare(
-            "SELECT id,name,base_url,username,password,principal_url,home_url,last_sync,last_error FROM accounts ORDER BY name",
+            "SELECT id,name,base_url,username,password,principal_url,home_url,last_sync,last_error,alt_urls,active_url
+             FROM accounts ORDER BY name",
         )?;
         let rows = st.query_map([], |r| {
+            let alt: String = r.get(9)?;
             Ok(Account {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 base_url: r.get(2)?,
+                alt_urls: serde_json::from_str(&alt).unwrap_or_default(),
+                active_url: r.get(10)?,
                 username: r.get(3)?,
                 password: r.get(4)?,
                 principal_url: r.get(5)?,
@@ -153,11 +174,14 @@ impl Db {
 
     pub fn save_account(&self, a: &Account) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO accounts(id,name,base_url,username,password,principal_url,home_url,last_sync,last_error)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+            "INSERT INTO accounts(id,name,base_url,username,password,principal_url,home_url,last_sync,last_error,alt_urls,active_url)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
              ON CONFLICT(id) DO UPDATE SET name=?2,base_url=?3,username=?4,password=?5,principal_url=?6,
-               home_url=?7,last_sync=?8,last_error=?9",
-            params![a.id, a.name, a.base_url, a.username, a.password, a.principal_url, a.home_url, a.last_sync, a.last_error],
+               home_url=?7,last_sync=?8,last_error=?9,alt_urls=?10,active_url=?11",
+            params![
+                a.id, a.name, a.base_url, a.username, a.password, a.principal_url, a.home_url, a.last_sync, a.last_error,
+                serde_json::to_string(&a.alt_urls)?, a.active_url
+            ],
         )?;
         Ok(())
     }

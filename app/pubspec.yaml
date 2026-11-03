@@ -1,7 +1,7 @@
 name: calendario
 description: Calendario y Tareas — app de escritorio local-first con núcleo Rust cifrado.
 publish_to: none
-version: 0.1.2+3
+version: 0.1.3+4
 
 environment:
   sdk: ^3.8.0
@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   window_manager: ^0.5.0
   screen_retriever: ^0.2.0
+  tray_manager: ^0.5.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
@@ -19,3 +20,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/app_icon.png
+    - assets/icon/app_icon.ico
+    - assets/icon/app_icon_64.png

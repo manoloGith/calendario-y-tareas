@@ -117,9 +117,10 @@ String? _systemFont() {
   }
 }
 
-ThemeData buildTheme(Tokens t) {
+/// Tema de la app. `fontFamily` sustituye a la fuente del sistema (los widgets permiten elegirla).
+ThemeData buildTheme(Tokens t, {String? fontFamily}) {
   final base = t.dark ? ThemeData.dark(useMaterial3: true) : ThemeData.light(useMaterial3: true);
-  final font = _systemFont();
+  final font = (fontFamily != null && fontFamily.isNotEmpty) ? fontFamily : _systemFont();
   return base.copyWith(
     extensions: [t],
     scaffoldBackgroundColor: t.window,

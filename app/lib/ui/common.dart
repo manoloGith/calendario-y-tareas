@@ -321,12 +321,15 @@ class MiniMonth extends StatelessWidget {
                           shape: BoxShape.circle,
                           color: isToday ? const Color(0xFFFF3B30) : (isSel ? t.pill : Colors.transparent),
                         ),
-                        child: Text('${day.day}',
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('${day.day}',
                             style: TextStyle(
                               fontSize: cell * .43,
                               fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w400,
                               color: isToday ? Colors.white : (inMonth ? t.text : t.faint),
                             )),
+                        ),
                       ),
                       if (dots.isNotEmpty)
                         Container(width: 4, height: 4, margin: const EdgeInsets.only(top: 1), decoration: BoxDecoration(shape: BoxShape.circle, color: dot ?? Colors.transparent)),

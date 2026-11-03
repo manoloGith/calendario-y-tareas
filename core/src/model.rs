@@ -45,7 +45,14 @@ pub struct Account {
     #[serde(default)]
     pub id: String,
     pub name: String,
+    /// Dirección principal (p. ej. la IP local).
     pub base_url: String,
+    /// Direcciones alternativas del mismo servidor (p. ej. VPN/Tailscale).
+    #[serde(default)]
+    pub alt_urls: Vec<String>,
+    /// Última dirección que respondió.
+    #[serde(default)]
+    pub active_url: Option<String>,
     pub username: String,
     #[serde(default, skip_serializing)]
     pub password: String,
@@ -191,4 +198,13 @@ pub struct Attachment {
     pub size: i64,
     #[serde(default)]
     pub created: String,
+}
+
+impl Account {
+    /// Todas las direcciones configuradas, la principal primero.
+    pub fn urls(&self) -> Vec<String> {
+        let mut v = vec![self.base_url.clone()];
+        v.extend(self.alt_urls.iter().cloned());
+        v
+    }
 }

@@ -17,6 +17,7 @@ import 'settings_dialog.dart';
 import 'sidebar.dart';
 import 'tasks/tasks_view.dart';
 import 'theme.dart';
+import 'tray.dart';
 
 class Shell extends StatefulWidget {
   const Shell({super.key, required this.store});
@@ -46,6 +47,10 @@ class _ShellState extends State<Shell> {
 
   /// Atiende la petición de un widget: formulario de nuevo evento en el día pedido.
   void _handlePending() {
+    if (store.requestNewTask) {
+      store.requestNewTask = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _new());
+    }
     final day = store.pendingNewEvent;
     if (day == null || _openingPending) return;
     _openingPending = true;
@@ -74,6 +79,7 @@ class _ShellState extends State<Shell> {
         key(LogicalKeyboardKey.digit1): () => store.setMode(AppMode.calendar),
         key(LogicalKeyboardKey.digit2): () => store.setMode(AppMode.tasks),
         key(LogicalKeyboardKey.keyR): () => store.syncNow(),
+        key(LogicalKeyboardKey.keyQ): () => appTray?.active == true ? appTray!.quit() : windowManager.close(),
         const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () => store.step(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () => store.step(1),
       },

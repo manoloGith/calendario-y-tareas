@@ -34,7 +34,7 @@ tool/build.sh, build.ps1   Compilación con un solo comando
 
 - **Windows:** Visual Studio 2022 con «Desarrollo para el escritorio con C++».
 - **macOS:** Xcode.
-- **Linux:** `sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev`.
+- **Linux:** `sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev`.
 
 **Con un solo comando**, desde la carpeta raíz:
 
@@ -62,7 +62,9 @@ Resultado:
 
 ## Uso
 
-**App portable.** Los datos se guardan por defecto en una carpeta `datos` junto al ejecutable (en macOS, junto a `calendario.app`), así que puedes llevar la carpeta completa en un USB. Contiene la base de datos cifrada (`datos.calendario`) y los ajustes (`ajustes.json`). Si esa carpeta no admite escritura (por ejemplo, dentro de «Archivos de programa»), se usa la carpeta del usuario. Para guardar los datos en otro sitio: Ajustes › General › **Carpeta de datos › Cambiar carpeta…** (los datos se mueven allí), o en la pantalla de inicio «Guardar los datos en otra carpeta…». Si eliges una carpeta que ya tiene datos de la app, se abren esos (con su contraseña). Si usabas la versión 0.1.0, se siguen usando tus datos de la carpeta del usuario hasta que los muevas.
+**App portable.** Al abrirse, la app usa los datos de la carpeta `datos` que haya junto al ejecutable (en macOS, junto a `calendario.app`): así puedes llevar la carpeta completa en un USB o copiarla a otro equipo. Contiene la base de datos cifrada (`datos.calendario`) y los ajustes (`ajustes.json`); las rutas dentro de la carpeta de la app se guardan de forma relativa, así que da igual la letra de unidad del USB. Si no hay datos, la pantalla de inicio permite **crearlos** (junto a la app o en otra carpeta), **abrir datos existentes de una carpeta** o **importar una copia de seguridad (.calbak)**. Para guardar los datos en otro sitio más adelante: Ajustes › General › **Carpeta de datos › Cambiar carpeta…** (se mueven allí). Si la carpeta de la app no admite escritura (por ejemplo, dentro de «Archivos de programa»), se usa la carpeta del usuario.
+
+**Bandeja del sistema e instancia única.** La app deja su icono en la bandeja del sistema. Cerrar la ventana la oculta ahí (los widgets siguen funcionando); clic en el icono la vuelve a mostrar y su menú ofrece «Nuevo evento», «Nueva tarea», «Bloquear» y **«Salir»**, que cierra la app y todos sus widgets (también con Ctrl+Q). Solo puede haber una ventana principal y un widget de cada tipo a la vez: si se abre el programa otra vez, se muestra la ventana que ya estaba abierta.
 
 **Primera vez.** La app pide una contraseña para crear la bóveda cifrada. Con «Recordar en este equipo» se guarda en el llavero del sistema (Credential Manager, Keychain o Secret Service) y la app y los widgets se abren sin pedirla. Si olvidas la contraseña, los datos no se pueden recuperar: haz copias de seguridad.
 
@@ -89,17 +91,18 @@ Resultado:
 | R | Sincronizar CalDAV |
 | , | Ajustes |
 | L | Bloquear |
+| Q | Salir (cierra también los widgets) |
 | Alt + ← / → | Periodo anterior / siguiente |
 
 **Archivos .ics.** «Enlazar» mantiene el calendario unido al archivo: los cambios se escriben en él y, si otro programa lo modifica, la app lo vuelve a leer (cada 10 segundos). «Importar» hace una copia. Cada calendario se puede exportar a .ics desde su menú «…».
 
-**CalDAV** (Nextcloud, iCloud con contraseña de aplicación, Fastmail, Radicale, Baïkal…). Ajustes › Cuentas › Añadir cuenta. Sin red, los cambios se quedan en local y se suben al reconectar; si el mismo elemento cambió en los dos lados, gana la edición más reciente. Se pueden crear calendarios nuevos en el servidor desde «Nuevo calendario o lista».
+**CalDAV** (Nextcloud, iCloud con contraseña de aplicación, Fastmail, Radicale, Baïkal…). Ajustes › Cuentas › Añadir cuenta. Cada cuenta admite una **dirección principal y una o varias alternativas** del mismo servidor, por ejemplo la IP local de casa y la dirección por VPN (Tailscale): al sincronizar se prueba primero la última que funcionó y, si no responde en unos segundos, las demás. «Probar conexión» comprueba cada dirección y muestra si responde y en cuánto tiempo. En Ajustes › Cuentas se ve por cuál está conectada y se puede editar. Sin red, los cambios se quedan en local y se suben al reconectar; si el mismo elemento cambió en los dos lados, gana la edición más reciente. Se pueden crear calendarios nuevos en el servidor desde «Nuevo calendario o lista».
 
 **Copias de seguridad.** Ajustes › Copias. El archivo `.calbak` contiene todo (también las cuentas) cifrado con la contraseña que elijas; se verifica al crearlo. Al restaurar puedes fusionar o reemplazar.
 
 **Adjuntos.** Eventos y tareas admiten documentos, enlaces y carpetas (botón del clip en «Adjuntos»). Los documentos se copian dentro de la base de datos, cifrados (máximo 50 MB cada uno), así que viajan con tus datos y en las copias de seguridad aunque borres el original; al abrirlos se descifra una copia temporal (los cambios que hagas en ella no se guardan en el adjunto: usa «Guardar una copia…»). Los enlaces se abren en el navegador y las carpetas en el explorador (son referencias: si la carpeta se mueve, deja de encontrarse). Los adjuntos no se sincronizan por CalDAV.
 
-**Widgets.** Ajustes › Widgets: «Solo calendario», «Calendario y eventos» y «Tareas». Se arrastran por la cabecera, se refrescan solos y permiten dar de alta eventos y tareas. **Doble clic en un día** de un widget abre la app en ese día con el formulario de nuevo evento (si la app estaba cerrada, la abre). **Tamaño:** al aparecer en un monitor nuevo se adaptan a su escala (DPI) y resolución; después puedes cambiarlo desde cualquier borde o con el asa de la esquina inferior derecha, y el contenido crece o encoge con él. La posición y el tamaño se guardan **para cada monitor y resolución**: si llevas la app en un USB a otro equipo, allí se usarán las medidas de ese monitor y al volver se recuperan las tuyas. Para que sigan visibles con Win+D o «Mostrar escritorio», se anclan al escritorio (Windows: propietario = ventana del escritorio; macOS: nivel de escritorio en todos los Spaces; Linux: siempre al fondo). El icono de chincheta permite abrir la app o quitar el widget.
+**Widgets.** En Ajustes › Widgets se eligen la **fuente** y el **tamaño del texto** (70–160 %), con vista previa. Ajustes › Widgets: «Solo calendario», «Calendario y eventos» y «Tareas». Se arrastran por la cabecera, se refrescan solos y permiten dar de alta eventos y tareas. **Doble clic en un día** de un widget abre la app en ese día con el formulario de nuevo evento (si la app estaba cerrada, la abre). **Tamaño:** al aparecer en un monitor nuevo se adaptan a su escala (DPI) y resolución; después puedes cambiarlo desde cualquier borde o con el asa de la esquina inferior derecha, y el contenido crece o encoge con él. La posición y el tamaño se guardan **para cada monitor y resolución**: si llevas la app en un USB a otro equipo, allí se usarán las medidas de ese monitor y al volver se recuperan las tuyas. Para que sigan visibles con Win+D o «Mostrar escritorio», se anclan al escritorio (Windows: propietario = ventana del escritorio; macOS: nivel de escritorio en todos los Spaces; Linux: siempre al fondo). El icono de chincheta permite abrir la app o quitar el widget.
 
 ## Arquitectura
 
@@ -153,5 +156,5 @@ Son 26 pruebas. Cubren:
 
 ## Próximos pasos
 
-1. **Servidor zero-knowledge.** El cliente ya guarda un registro ordenado de cambios (`changes`) y dispone del sobre cifrado de `backup.rs`, que servirán para subir solo blobs cifrados y sincronizar entre dispositivos.
+1. **Servidor zero-knowledge.** Usará el mismo módulo de conectividad que CalDAV (`core/src/endpoints.rs`): varias direcciones por servidor (local, VPN…), prueba con tiempo de espera corto y rutas independientes del origen. El cliente ya guarda un registro ordenado de cambios (`changes`) y dispone del sobre cifrado de `backup.rs`, que servirán para subir solo blobs cifrados y sincronizar entre dispositivos.
 2. **App móvil.** Flutter iOS/Android reutilizando el mismo núcleo Rust y gran parte de la interfaz.
