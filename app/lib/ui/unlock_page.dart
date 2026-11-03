@@ -5,6 +5,7 @@ import 'package:window_manager/window_manager.dart';
 import '../core/bridge.dart';
 import '../core/store.dart';
 import 'common.dart';
+import 'settings_dialog.dart';
 import 'theme.dart';
 
 class UnlockPage extends StatefulWidget {
@@ -20,7 +21,7 @@ class _UnlockPageState extends State<UnlockPage> {
   bool remember = false;
   bool busy = false;
   String? error;
-  late final bool creating = !widget.store.vaultExists;
+  bool get creating => !widget.store.vaultExists;
 
   @override
   void initState() {
@@ -81,13 +82,7 @@ class _UnlockPageState extends State<UnlockPage> {
                 padding: const EdgeInsets.all(28),
                 decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(22), border: Border.all(color: t.sideBorder)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: const Color(0xFFFF3B30), borderRadius: BorderRadius.circular(16)),
-                    child: Text('${DateTime.now().day}', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700)),
-                  ),
+                  Center(child: Image.asset('assets/icon/app_icon.png', width: 84, height: 84, filterQuality: FilterQuality.medium)),
                   const SizedBox(height: 16),
                   Text(creating ? 'Bienvenido' : 'Calendario y Tareas',
                       textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
@@ -139,7 +134,16 @@ class _UnlockPageState extends State<UnlockPage> {
                         : Text(creating ? 'Crear y empezar' : 'Desbloquear'),
                   ),
                   const SizedBox(height: 12),
-                  Text(widget.store.settings.vaultPath, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: t.faint)),
+                  Text(widget.store.dataFolder, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: t.faint)),
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            await changeDataFolder(context, widget.store);
+                            if (mounted) setState(() => error = null);
+                          },
+                    child: Text(creating ? 'Guardar los datos en otra carpeta…' : 'Abrir datos de otra carpeta…', style: const TextStyle(fontSize: 12)),
+                  ),
                 ]),
               ),
             ),

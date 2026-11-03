@@ -22,7 +22,8 @@ app/                  Interfaz Flutter
   lib/core/           Puente FFI, modelos, estado, ajustes
   lib/ui/             Ventana principal, calendario, tareas, ajustes
   lib/desktop_widgets Widgets de escritorio
-  tool/patch_runners.dart  Ajusta los proyectos nativos que genera flutter create
+  tool/patch_runners.dart  Ajusta los proyectos nativos que genera flutter create (icono incluido)
+  tool/make_icon.py   Genera el icono (assets/icon/) en PNG e ICO
 tool/build.sh, build.ps1   Compilación con un solo comando
 .github/workflows/    Compilación y pruebas en Windows, macOS y Linux reales
 ```
@@ -60,6 +61,8 @@ Resultado:
 **GitHub Actions:** si subes el proyecto a GitHub, el flujo `.github/workflows/build.yml` ejecuta las pruebas del núcleo (con un servidor CalDAV real) y compila la app en los tres sistemas; los ejecutables quedan como artefactos descargables.
 
 ## Uso
+
+**App portable.** Los datos se guardan por defecto en una carpeta `datos` junto al ejecutable (en macOS, junto a `calendario.app`), así que puedes llevar la carpeta completa en un USB. Contiene la base de datos cifrada (`datos.calendario`) y los ajustes (`ajustes.json`). Si esa carpeta no admite escritura (por ejemplo, dentro de «Archivos de programa»), se usa la carpeta del usuario. Para guardar los datos en otro sitio: Ajustes › General › **Carpeta de datos › Cambiar carpeta…** (los datos se mueven allí), o en la pantalla de inicio «Guardar los datos en otra carpeta…». Si eliges una carpeta que ya tiene datos de la app, se abren esos (con su contraseña). Si usabas la versión 0.1.0, se siguen usando tus datos de la carpeta del usuario hasta que los muevas.
 
 **Primera vez.** La app pide una contraseña para crear la bóveda cifrada. Con «Recordar en este equipo» se guarda en el llavero del sistema (Credential Manager, Keychain o Secret Service) y la app y los widgets se abren sin pedirla. Si olvidas la contraseña, los datos no se pueden recuperar: haz copias de seguridad.
 

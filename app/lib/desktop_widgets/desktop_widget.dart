@@ -23,6 +23,9 @@ const widgetSizes = {
 
 String widgetTitle(String kind) => 'CalendarioWidget-$kind';
 
+final _lightTheme = buildTheme(Tokens.light).copyWith(scaffoldBackgroundColor: Colors.transparent);
+final _darkTheme = buildTheme(Tokens.darkTokens).copyWith(scaffoldBackgroundColor: Colors.transparent);
+
 Future<void> runDesktopWidget(String kind, String vaultPath) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
@@ -47,7 +50,9 @@ Future<void> runDesktopWidget(String kind, String vaultPath) async {
       final index = Settings.widgetKinds.indexOf(kind);
       await windowManager.setPosition(Offset(40.0 + index * 360, 60));
     }
-    if (!Platform.isMacOS) {
+    // Linux: siempre al fondo. En Windows NO se usa: window_manager lo reaplica en cada cambio de posición,
+    // lo que provocaba parpadeos y bloqueaba el arrastre; allí el anclaje lo hace el núcleo (pinToDesktop).
+    if (Platform.isLinux) {
       try {
         await windowManager.setAlwaysOnBottom(true);
       } catch (_) {}
@@ -130,18 +135,20 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
   @override
   Widget build(BuildContext context) {
     final mode = switch (widget.store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system };
-    return ListenableBuilder(
-      listenable: widget.store,
-      builder: (context, _) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(Tokens.light).copyWith(scaffoldBackgroundColor: Colors.transparent),
-        darkTheme: buildTheme(Tokens.darkTokens).copyWith(scaffoldBackgroundColor: Colors.transparent),
-        themeMode: mode,
-        localizationsDelegates: const [SpanishMaterialDelegate()],
-        home: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: _Glass(
-            child: widget.store.unlocked
+    // El MaterialApp no se reconstruye con cada refresco de datos: solo el contenido del widget.
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: _lightTheme,
+      darkTheme: _darkTheme,
+      themeMode: mode,
+      themeAnimationDuration: Duration.zero,
+      localizationsDelegates: const [SpanishMaterialDelegate()],
+      home: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: _Glass(
+          child: ListenableBuilder(
+            listenable: widget.store,
+            builder: (context, _) => widget.store.unlocked
                 ? switch (widget.kind) {
                     'agenda' => _AgendaWidget(store: widget.store),
                     'tasks' => _TasksWidget(store: widget.store),

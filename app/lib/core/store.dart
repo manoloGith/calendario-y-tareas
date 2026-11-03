@@ -302,6 +302,48 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------- carpeta de datos
+
+  String get dataFolder => File(settings.vaultPath).parent.path;
+
+  /// Mueve los datos a otra carpeta. Los widgets se cierran durante el traslado y se vuelven a abrir.
+  Future<void> moveDataTo(String folder) async {
+    final target = joinPath(folder, 'datos.calendario');
+    await stopWidgets();
+    try {
+      await Core.callAsync('vault.relocate', {'path': target});
+      settings.vaultPath = target;
+      settings.save();
+    } finally {
+      reload();
+      await launchWidgets();
+    }
+  }
+
+  /// Usa unos datos que ya existen en otra carpeta (se pedirá su contraseña).
+  Future<void> useDataAt(String folder) async {
+    await stopWidgets();
+    if (unlocked) lock();
+    settings.vaultPath = joinPath(folder, 'datos.calendario');
+    settings.save();
+    notifyListeners();
+  }
+
+  /// Cierra los widgets en marcha (su PID está en el archivo de señal de vida).
+  Future<void> stopWidgets() async {
+    var killed = false;
+    for (final kind in Settings.widgetKinds) {
+      final f = heartbeatFile(kind);
+      if (!f.existsSync()) continue;
+      final pid = int.tryParse(f.readAsStringSync().trim());
+      if (pid != null && widgetAlive(kind)) killed = Process.killPid(pid) || killed;
+      try {
+        f.deleteSync();
+      } catch (_) {}
+    }
+    if (killed) await Future<void>.delayed(const Duration(milliseconds: 900));
+  }
+
   // ---------------------------------------------------------------- widgets de escritorio
 
   /// Arranca los widgets activados que no estén ya en marcha. La contraseña viaja por stdin si no está en el llavero.

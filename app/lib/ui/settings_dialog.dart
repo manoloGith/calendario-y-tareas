@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../core/bridge.dart';
 import '../core/dates.dart';
+import 'dart:io';
+
 import '../core/settings.dart';
 import '../core/store.dart';
 import 'common.dart';
@@ -139,7 +141,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ),
       ),
       _row('Zona horaria', Text('${info['tz']}', style: TextStyle(color: context.tk.sec))),
-      _row('Datos', SelectableText('${info['path']}', style: TextStyle(color: context.tk.sec, fontSize: 12))),
+      _row(
+        'Carpeta de datos',
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SelectableText(store.dataFolder, style: TextStyle(color: context.tk.sec, fontSize: 12)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 8, children: [
+            OutlinedButton(onPressed: () => changeDataFolder(context, store), child: const Text('Cambiar carpeta…')),
+            TextButton(onPressed: () => openFolder(store.dataFolder), child: const Text('Abrir carpeta')),
+          ]),
+        ]),
+      ),
       const SizedBox(height: 18),
       _title('Archivos .ics', 'Un archivo enlazado se mantiene sincronizado: los cambios se escriben en él y se releen si otro programa lo modifica.'),
       Wrap(spacing: 8, runSpacing: 8, children: [
@@ -428,4 +440,40 @@ Future<void> showAddCalDav(BuildContext context, AppStore store) async {
       ),
     ),
   );
+}
+
+/// Abre una carpeta en el explorador del sistema.
+Future<void> openFolder(String dir) async {
+  final cmd = Platform.isWindows ? 'explorer' : (Platform.isMacOS ? 'open' : 'xdg-open');
+  await Process.start(cmd, [dir], mode: ProcessStartMode.detached);
+}
+
+/// Elige otra carpeta para los datos: si ya contiene datos, se pueden usar; si no, se mueven allí los actuales.
+Future<void> changeDataFolder(BuildContext context, AppStore store) async {
+  final dir = await pickFile(mode: 'folder', title: 'Elige la carpeta para tus datos');
+  if (dir == null || !context.mounted) return;
+  final target = joinPath(dir, 'datos.calendario');
+  if (target == store.settings.vaultPath) return;
+  try {
+    if (File(target).existsSync()) {
+      final ok = await confirm(context, 'Ya hay datos en esa carpeta',
+          '¿Quieres usar los datos de «$dir»? Se pedirá su contraseña. Los datos actuales se quedan donde están.',
+          ok: 'Usar esos datos', danger: false);
+      if (!ok || !context.mounted) return;
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      await store.useDataAt(dir);
+    } else if (!store.unlocked) {
+      // Antes de crear o abrir la bóveda: solo se cambia la ubicación.
+      store.settings.vaultPath = target;
+      store.settings.save();
+      store.reload();
+    } else {
+      final ok = await confirm(context, 'Mover los datos', 'Tus datos cifrados se moverán a «$dir». Los widgets se cerrarán un momento.', ok: 'Mover', danger: false);
+      if (!ok) return;
+      await store.moveDataTo(dir);
+      if (context.mounted) showInfo(context, 'Datos movidos a $dir');
+    }
+  } catch (e) {
+    if (context.mounted) showError(context, e);
+  }
 }

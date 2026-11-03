@@ -2,19 +2,65 @@
 import 'dart:convert';
 import 'dart:io';
 
-String appDataDir() {
+String? _dataDir;
+
+/// Carpeta «datos» junto al ejecutable (modo portable). En macOS, junto al .app.
+String portableDir() {
+  var base = File(Platform.resolvedExecutable).parent;
+  if (Platform.isMacOS && base.path.endsWith('Contents/MacOS')) base = base.parent.parent.parent;
+  return '${base.path}${Platform.pathSeparator}datos';
+}
+
+/// Ubicación de versiones anteriores (carpeta del usuario).
+String legacyDir() {
   final env = Platform.environment;
-  String base;
-  if (Platform.isWindows) {
-    base = '${env['APPDATA'] ?? env['USERPROFILE'] ?? '.'}\\CalendarioTareas';
-  } else if (Platform.isMacOS) {
-    base = '${env['HOME']}/Library/Application Support/CalendarioTareas';
-  } else {
-    final xdg = env['XDG_DATA_HOME'];
-    base = '${(xdg != null && xdg.isNotEmpty) ? xdg : '${env['HOME']}/.local/share'}/calendario-tareas';
+  if (Platform.isWindows) return '${env['APPDATA'] ?? env['USERPROFILE'] ?? '.'}\\CalendarioTareas';
+  if (Platform.isMacOS) return '${env['HOME']}/Library/Application Support/CalendarioTareas';
+  final xdg = env['XDG_DATA_HOME'];
+  return '${(xdg != null && xdg.isNotEmpty) ? xdg : '${env['HOME']}/.local/share'}/calendario-tareas';
+}
+
+bool _writable(String dir) {
+  try {
+    Directory(dir).createSync(recursive: true);
+    final probe = File('$dir${Platform.pathSeparator}.escritura');
+    probe.writeAsStringSync('ok');
+    probe.deleteSync();
+    return true;
+  } catch (_) {
+    return false;
   }
-  Directory(base).createSync(recursive: true);
-  return base;
+}
+
+/// Carpeta de la app (ajustes, señales de los widgets y, por defecto, los datos).
+/// Portable: junto al ejecutable. Si no se puede escribir ahí (p. ej. Archivos de programa), en la carpeta del usuario.
+String appDataDir() => _dataDir ??= () {
+      final forced = Platform.environment['CALENDARIO_DATA'];
+      if (forced != null && forced.isNotEmpty && _writable(forced)) return forced;
+      final p = portableDir();
+      if (_writable(p)) {
+        _migrateLegacy(p);
+        return p;
+      }
+      final l = legacyDir();
+      Directory(l).createSync(recursive: true);
+      return l;
+    }();
+
+/// Si había datos de la versión anterior en la carpeta del usuario, se siguen usando (se pueden mover desde Ajustes).
+void _migrateLegacy(String portable) {
+  final target = File('$portable${Platform.pathSeparator}ajustes.json');
+  if (target.existsSync()) return;
+  final legacy = legacyDir();
+  final oldSettings = File('$legacy${Platform.pathSeparator}ajustes.json');
+  final oldVault = File('$legacy${Platform.pathSeparator}datos.calendario');
+  if (!oldVault.existsSync()) return;
+  Map<String, dynamic> j = {};
+  try {
+    if (oldSettings.existsSync()) j = jsonDecode(oldSettings.readAsStringSync()) as Map<String, dynamic>;
+  } catch (_) {}
+  j['vaultPath'] ??= oldVault.path;
+  target.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(j));
 }
 
 String joinPath(String a, String b) => '$a${Platform.pathSeparator}$b';

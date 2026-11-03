@@ -184,6 +184,13 @@ fn json_api_end_to_end() {
     assert_eq!(found.as_array().unwrap().len(), 1);
     assert_eq!(call("nope", json!({}))["ok"], json!(false));
     assert_eq!(call("events.save", json!({"event": {"calendarId": cid, "title": "", "start": "x", "end": "y"}}))["code"], json!("invalid"));
+    // Mover la bóveda a otra carpeta (portable) sin volver a pedir la contraseña.
+    let moved = d.join("portable").join("datos.calendario").display().to_string();
+    assert_eq!(call("vault.relocate", json!({"path": moved}))["ok"], json!(true));
+    assert!(!std::path::Path::new(&path).exists());
+    assert_eq!(call("search", json!({"q": "pista"}))["data"]["tasks"].as_array().unwrap().len(), 1);
+    assert_eq!(call("vault.relocate", json!({"path": moved}))["ok"], json!(true), "misma ruta: no hace nada");
+    let path = moved;
     assert_eq!(call("vault.lock", json!({}))["ok"], json!(true));
     assert_eq!(call("vault.open", json!({"path": path, "password": "mal"}))["code"], json!("wrong_password"));
 }

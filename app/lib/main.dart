@@ -38,11 +38,16 @@ Future<void> main(List<String> args) async {
   unawaited(windowManager.waitUntilReadyToShow(options, () async {
     // En macOS se mantienen los botones nativos del semáforo; en Windows y Linux se dibujan en la barra lateral.
     if (!Platform.isMacOS) await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    // Linux: icono de la ventana (en Windows y macOS lo lleva el propio ejecutable).
+    if (Platform.isLinux) await windowManager.setIcon('assets/icon/app_icon.png');
     await windowManager.show();
     await windowManager.focus();
   }));
   runApp(CalendarioApp(store: AppStore(Settings.load())));
 }
+
+final _lightTheme = buildTheme(Tokens.light);
+final _darkTheme = buildTheme(Tokens.darkTokens);
 
 class CalendarioApp extends StatelessWidget {
   const CalendarioApp({super.key, required this.store});
@@ -54,8 +59,8 @@ class CalendarioApp extends StatelessWidget {
         builder: (context, _) => MaterialApp(
           title: 'Calendario y Tareas',
           debugShowCheckedModeBanner: false,
-          theme: buildTheme(Tokens.light),
-          darkTheme: buildTheme(Tokens.darkTokens),
+          theme: _lightTheme,
+          darkTheme: _darkTheme,
           themeMode: switch (store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system },
           localizationsDelegates: const [SpanishMaterialDelegate()],
           home: store.unlocked ? Shell(store: store) : UnlockPage(store: store),

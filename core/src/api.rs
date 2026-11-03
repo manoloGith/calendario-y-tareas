@@ -126,6 +126,31 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
             }
             Ok(json!(true))
         })?,
+        "vault.relocate" => {
+            // Mueve la bóveda a otra carpeta (modo portable o carpeta elegida) sin pedir de nuevo la contraseña.
+            let new: PathBuf = p(a, "path")?;
+            let mut g = VAULT.lock().unwrap_or_else(|e| e.into_inner());
+            let v = g.take().ok_or(Error::Locked)?;
+            let (old, pw) = v.credentials();
+            drop(v); // cierra la conexión: SQLite vuelca el WAL al archivo principal
+            let res = relocate_files(&old, &new);
+            match res {
+                Ok(()) => {
+                    if let Ok(e) = keyring_entry(&old) {
+                        if e.get_password().is_ok() {
+                            let _ = e.delete_credential();
+                            let _ = keyring_entry(&new).and_then(|n| n.set_password(&pw).map_err(|e| Error::Keyring(e.to_string())));
+                        }
+                    }
+                    *g = Some(Vault::open(&new, &pw)?);
+                    json!(new.display().to_string())
+                }
+                Err(e) => {
+                    *g = Some(Vault::open(&old, &pw)?);
+                    return Err(e);
+                }
+            }
+        }
         "vault.info" => with(|v| {
             Ok(json!({
                 "path": v.path.display().to_string(),
@@ -293,6 +318,34 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
         "sys.notify" => json!(crate::desktop::notify(&p::<String>(a, "title")?, &opt::<String>(a, "body").unwrap_or_default())?),
         _ => return Err(Error::Invalid(format!("método desconocido: {method}"))),
     })
+}
+
+/// Mueve el archivo de la bóveda (y sus ficheros WAL si quedaran) a `new`. Funciona entre discos distintos.
+fn relocate_files(old: &Path, new: &Path) -> Result<()> {
+    if new == old {
+        return Ok(());
+    }
+    if new.exists() {
+        return Err(Error::Invalid("en esa carpeta ya hay unos datos de Calendario y Tareas".into()));
+    }
+    if let Some(dir) = new.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mv = |from: &Path, to: &Path| -> Result<()> {
+        if std::fs::rename(from, to).is_err() {
+            std::fs::copy(from, to)?;
+            std::fs::remove_file(from)?;
+        }
+        Ok(())
+    };
+    mv(old, new)?;
+    for ext in ["-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{ext}", old.display()));
+        if from.exists() {
+            let _ = mv(&from, &PathBuf::from(format!("{}{ext}", new.display())));
+        }
+    }
+    Ok(())
 }
 
 fn sync_json(res: Vec<(String, std::result::Result<crate::caldav::SyncStats, String>)>) -> Value {

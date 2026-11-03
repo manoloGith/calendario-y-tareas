@@ -33,6 +33,27 @@ String replaceOnce(String s, String from, String to, String file) {
   return s.replaceFirst(from, to);
 }
 
+void copyIfChanged(String from, String to, String what) {
+  final src = File(from);
+  if (!src.existsSync() || !File(to).parent.existsSync()) return;
+  final dst = File(to);
+  final a = src.readAsBytesSync();
+  if (dst.existsSync()) {
+    final b = dst.readAsBytesSync();
+    if (a.length == b.length && _same(a, b)) return;
+  }
+  dst.writeAsBytesSync(a);
+  changes++;
+  stdout.writeln('  ✓ $to: $what');
+}
+
+bool _same(List<int> a, List<int> b) {
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 void linux() {
   final cc = File('linux/runner/my_application.cc').existsSync() ? 'linux/runner/my_application.cc' : 'linux/my_application.cc';
   patch(cc, (s) {
@@ -74,6 +95,15 @@ install(FILES "\${PROJECT_SOURCE_DIR}/../../core/target/release/libcalendario_co
 }
 
 void windows() {
+  copyIfChanged('assets/icon/app_icon.ico', 'windows/runner/resources/app_icon.ico', 'icono de la app');
+  patch('windows/runner/Runner.rc', (s) {
+    var r = s;
+    for (final k in ['FileDescription', 'ProductName']) {
+      r = r.replaceAll(RegExp('VALUE "$k", "[^"]*"'), 'VALUE "$k", "Calendario y Tareas"');
+    }
+    return r;
+  }, 'nombre «Calendario y Tareas» en las propiedades del .exe');
+  patch('windows/runner/main.cpp', (s) => s.replaceFirst('window.Create(L"calendario"', 'window.Create(L"Calendario y Tareas"'), 'título de la ventana');
   patch('windows/runner/win32_window.cpp', (s) => s.replaceFirst('WS_OVERLAPPEDWINDOW | WS_VISIBLE', 'WS_OVERLAPPEDWINDOW'), 'ventana oculta al arrancar');
   patch('windows/runner/flutter_window.cpp', (s) {
     if (s.contains('// la muestra window_manager') || !s.contains('this->Show();')) return s;
@@ -90,6 +120,9 @@ install(FILES "\${PROJECT_SOURCE_DIR}/../../core/target/release/calendario_core.
 }
 
 void macos() {
+  for (final n in [16, 32, 64, 128, 256, 512, 1024]) {
+    copyIfChanged('assets/icon/app_icon_$n.png', 'macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_$n.png', 'icono $n px');
+  }
   patch('macos/Runner/MainFlutterWindow.swift', (s) {
     if (s.contains('hiddenWindowAtLaunch')) return s;
     var r = replaceOnce(s, 'import FlutterMacOS', 'import FlutterMacOS\nimport window_manager', 'MainFlutterWindow.swift');

@@ -26,9 +26,6 @@ pub fn pin_to_desktop(title: &str) -> Result<bool> {
             return Err(Error::NotFound(format!("ventana «{title}»")));
         }
         let progman = FindWindowW(wide("Progman").as_ptr(), null());
-        // Pide al Explorador que cree la capa WorkerW (necesaria en algunas versiones de Windows).
-        let mut _res: usize = 0;
-        SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, &mut _res);
         let mut defview = FindWindowExW(progman, std::ptr::null_mut(), wide("SHELLDLL_DefView").as_ptr(), null());
         if defview.is_null() {
             EnumWindows(Some(find_defview), &mut defview as *mut HWND as LPARAM);
@@ -38,6 +35,7 @@ pub fn pin_to_desktop(title: &str) -> Result<bool> {
         SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, owner as isize);
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as isize) & !(WS_EX_APPWINDOW as isize));
+        // Una sola vez al fondo; no se fuerza en cada movimiento (eso provocaba parpadeos y bloqueaba el arrastre).
         SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         Ok(true)
     }
