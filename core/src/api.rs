@@ -98,6 +98,7 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
         "vault.isOpen" => json!(VAULT.lock().unwrap_or_else(|e| e.into_inner()).is_some()),
         "vault.lock" => {
             *VAULT.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            Vault::clean_temp_attachments();
             json!(true)
         }
         "vault.remembered" => {
@@ -222,6 +223,25 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
         "tasks.quickAdd" => with(|v| {
             Ok(json!(v.quick_task(&p::<String>(a, "text")?, &p::<String>(a, "listId")?, opt(a, "parentId"))?))
         })?,
+        "attachments.list" => with(|v| Ok(json!(v.db.attachments(&p::<String>(a, "ownerId")?)?)))?,
+        "attachments.add" => {
+            // Leer un documento grande puede tardar: se hace con la bóveda bloqueada, pero desde un isolate.
+            with(|v| {
+                let target: String = opt(a, "path").or_else(|| opt(a, "url")).unwrap_or_default();
+                let name: Option<String> = opt(a, "name");
+                Ok(json!(v.add_attachment(&p::<String>(a, "ownerKind")?, &p::<String>(a, "ownerId")?, &p::<String>(a, "kind")?, &target, name.as_deref())?))
+            })?
+        }
+        "attachments.delete" => with(|v| {
+            v.db.delete_attachment(&p::<String>(a, "id")?)?;
+            Ok(json!(true))
+        })?,
+        "attachments.open" => with(|v| Ok(json!(v.open_attachment(&p::<String>(a, "id")?)?)))?,
+        "attachments.export" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            v.export_attachment(&p::<String>(a, "id")?, &path)?;
+            Ok(json!(true))
+        })?,
         "tags.list" => with(|v| Ok(json!(v.db.tags()?)))?,
         "search" => with(|v| {
             let (events, tasks) = v.db.search(&p::<String>(a, "q")?)?;
@@ -315,6 +335,7 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
             let def: Option<String> = opt(a, "defaultName");
             json!(crate::desktop::pick_file(&mode, &title, &fname, &exts, def.as_deref()))
         }
+        "sys.allowForeground" => json!(crate::desktop::allow_foreground()),
         "sys.notify" => json!(crate::desktop::notify(&p::<String>(a, "title")?, &opt::<String>(a, "body").unwrap_or_default())?),
         _ => return Err(Error::Invalid(format!("método desconocido: {method}"))),
     })

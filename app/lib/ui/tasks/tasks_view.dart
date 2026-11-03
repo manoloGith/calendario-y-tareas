@@ -5,6 +5,7 @@ import '../../core/bridge.dart';
 import '../../core/dates.dart';
 import '../../core/models.dart';
 import '../../core/store.dart';
+import '../attachments.dart';
 import '../common.dart';
 import '../theme.dart';
 
@@ -219,6 +220,11 @@ class _TaskRow extends StatelessWidget {
           Container(width: 6, height: 6, decoration: BoxDecoration(color: node.color, shape: BoxShape.circle)),
           const SizedBox(width: 4),
           Text(node.listName, style: TextStyle(fontSize: 12, color: t.sec)),
+        ]),
+      if (node.attachments > 0)
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.attach_file_rounded, size: 12, color: t.sec),
+          Text('${node.attachments}', style: TextStyle(fontSize: 12, color: t.sec)),
         ]),
       if (node.subTotal > 0)
         InkWell(
@@ -635,6 +641,8 @@ class _TaskInspectorState extends State<TaskInspector> {
             ),
           _AddSubtask(store: store, parent: task),
         ],
+        const SizedBox(height: 12),
+        AttachmentsSection(store: store, ownerKind: 'task', ownerId: task.id),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(10),

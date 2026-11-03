@@ -1,5 +1,6 @@
 // Estado de la aplicación: bóveda abierta, calendarios, vista actual, sincronización y avisos.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -62,6 +63,9 @@ class AppStore extends ChangeNotifier {
   String? selectedTaskId;
   bool showCompleted = false;
 
+  /// Día para el que hay que abrir el formulario de nuevo evento (doble clic en un widget).
+  DateTime? pendingNewEvent;
+
   SyncState syncState = SyncState.idle;
   String syncMessage = '';
   int pending = 0;
@@ -120,6 +124,42 @@ class AppStore extends ChangeNotifier {
       _syncTimer = Timer.periodic(Duration(minutes: settings.syncMinutes.clamp(1, 120)), (_) => syncNow(quiet: true));
       if (accounts.isNotEmpty) syncNow(quiet: true);
     }
+    notifyListeners();
+  }
+
+  /// Ventana principal: deja señal de vida y atiende las peticiones de los widgets (también con la bóveda bloqueada).
+  void startAppHeartbeat() {
+    _appBeat = Timer.periodic(const Duration(seconds: 1), (_) => _appTick());
+    _appTick();
+  }
+
+  Timer? _appBeat;
+  int _beats = 0;
+  /// Se llama cuando un widget pide traer la ventana al frente.
+  VoidCallback? onBringToFront;
+
+  void _appTick() {
+    try {
+      if (_beats++ % 4 == 0) appHeartbeatFile().writeAsStringSync('$pid');
+      final f = requestFile();
+      if (!f.existsSync()) return;
+      final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      f.deleteSync();
+      final at = DateTime.tryParse(j['at'] as String? ?? '');
+      if (at == null || DateTime.now().difference(at).inSeconds > 60) return;
+      if (j['action'] == 'newEvent') {
+        final day = DateTime.tryParse(j['date'] as String? ?? '');
+        if (day != null) requestNewEvent(day);
+      }
+      onBringToFront?.call();
+    } catch (_) {}
+  }
+
+  void requestNewEvent(DateTime day) {
+    pendingNewEvent = day;
+    mode = AppMode.calendar;
+    anchor = day;
+    view = CalView.day;
     notifyListeners();
   }
 
@@ -378,6 +418,7 @@ class AppStore extends ChangeNotifier {
     _poll?.cancel();
     _syncTimer?.cancel();
     _alarmTimer?.cancel();
+    _appBeat?.cancel();
     super.dispose();
   }
 }

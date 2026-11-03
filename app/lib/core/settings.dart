@@ -65,14 +65,41 @@ void _migrateLegacy(String portable) {
 
 String joinPath(String a, String b) => '$a${Platform.pathSeparator}$b';
 
+/// Posición y tamaño de un widget en un monitor concreto (coordenadas lógicas).
+class WidgetLayout {
+  WidgetLayout(this.x, this.y, this.w, this.h);
+  factory WidgetLayout.fromJson(Map<String, dynamic> j) =>
+      WidgetLayout((j['x'] as num).toDouble(), (j['y'] as num).toDouble(), (j['w'] as num).toDouble(), (j['h'] as num).toDouble());
+  final double x, y, w, h;
+  Map<String, dynamic> toJson() => {'x': x, 'y': y, 'w': w, 'h': h};
+}
+
 class WidgetPrefs {
-  WidgetPrefs({this.enabled = false, this.x, this.y});
-  factory WidgetPrefs.fromJson(Map<String, dynamic> j) =>
-      WidgetPrefs(enabled: j['enabled'] as bool? ?? false, x: (j['x'] as num?)?.toDouble(), y: (j['y'] as num?)?.toDouble());
+  WidgetPrefs({this.enabled = false, this.x, this.y, Map<String, WidgetLayout>? layouts, this.lastMonitor}) : layouts = layouts ?? {};
+  factory WidgetPrefs.fromJson(Map<String, dynamic> j) => WidgetPrefs(
+        enabled: j['enabled'] as bool? ?? false,
+        x: (j['x'] as num?)?.toDouble(),
+        y: (j['y'] as num?)?.toDouble(),
+        layouts: {
+          for (final e in ((j['layouts'] as Map?) ?? {}).entries)
+            e.key as String: WidgetLayout.fromJson((e.value as Map).cast<String, dynamic>()),
+        },
+        lastMonitor: j['lastMonitor'] as String?,
+      );
   bool enabled;
+  /// Posición de versiones anteriores (sin tamaño ni monitor).
   double? x;
   double? y;
-  Map<String, dynamic> toJson() => {'enabled': enabled, 'x': x, 'y': y};
+  /// Clave «monitor|resolución@escala» → posición y tamaño en ese monitor.
+  final Map<String, WidgetLayout> layouts;
+  String? lastMonitor;
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'x': x,
+        'y': y,
+        'layouts': {for (final e in layouts.entries) e.key: e.value.toJson()},
+        'lastMonitor': lastMonitor,
+      };
 }
 
 class Settings {
@@ -133,3 +160,15 @@ bool widgetAlive(String kind) {
   if (!f.existsSync()) return false;
   return DateTime.now().difference(f.lastModifiedSync()).inSeconds < 15;
 }
+
+/// Señal de vida de la ventana principal.
+File appHeartbeatFile() => File(joinPath(appDataDir(), 'app.alive'));
+
+bool appAlive() {
+  final f = appHeartbeatFile();
+  if (!f.existsSync()) return false;
+  return DateTime.now().difference(f.lastModifiedSync()).inSeconds < 12;
+}
+
+/// Petición de un widget a la app principal (p. ej. abrir un día con el formulario de nuevo evento).
+File requestFile() => File(joinPath(appDataDir(), 'peticion.json'));

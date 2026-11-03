@@ -12,6 +12,9 @@ use chrono::{Duration, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Tamaño máximo de un documento adjunto.
+pub const MAX_ATTACHMENT: u64 = 50_000_000;
+
 pub struct Vault {
     pub db: Db,
     pub path: PathBuf,
@@ -29,6 +32,7 @@ pub struct TaskNode {
     pub list_name: String,
     pub list_color: String,
     pub overdue: bool,
+    pub attachments: i64,
 }
 
 #[derive(Serialize, Debug)]
@@ -271,6 +275,7 @@ impl Vault {
             list_name: cal.map(|c| c.name.clone()).unwrap_or_default(),
             list_color: cal.map(|c| c.color.clone()).unwrap_or_default(),
             overdue,
+            attachments: self.db.attachment_count(&t.id)?,
             task: t,
         })
     }
@@ -491,6 +496,108 @@ impl Vault {
             "all",
             None,
         )
+    }
+
+    // ---------------------------------------------------------------- adjuntos
+
+    /// Añade un documento (se copia cifrado), un enlace o una carpeta a un evento o tarea.
+    pub fn add_attachment(&self, owner_kind: &str, owner_id: &str, kind: &str, target: &str, name: Option<&str>) -> Result<Attachment> {
+        let cal = match owner_kind {
+            "event" => self.db.event(owner_id)?.calendar_id,
+            "task" => self.db.task(owner_id)?.list_id,
+            _ => return Err(Error::Invalid("tipo de propietario desconocido".into())),
+        };
+        self.writable(&cal)?;
+        let target = target.trim();
+        let file_name = |p: &str| {
+            Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string())
+        };
+        let mut a = Attachment {
+            id: uuid::Uuid::new_v4().to_string(),
+            owner_kind: owner_kind.into(),
+            owner_id: owner_id.into(),
+            kind: kind.into(),
+            name: String::new(),
+            target: target.into(),
+            size: 0,
+            created: time::now_utc_string(),
+        };
+        let mut data = None;
+        match kind {
+            "file" => {
+                let meta = std::fs::metadata(target).map_err(|_| Error::NotFound(format!("archivo {target}")))?;
+                if !meta.is_file() {
+                    return Err(Error::Invalid("eso no es un archivo".into()));
+                }
+                if meta.len() > MAX_ATTACHMENT {
+                    return Err(Error::Invalid(format!("el documento supera el máximo de {} MB", MAX_ATTACHMENT / 1_000_000)));
+                }
+                data = Some(std::fs::read(target)?);
+                a.size = meta.len() as i64;
+                a.name = file_name(target);
+            }
+            "folder" => {
+                if !Path::new(target).is_dir() {
+                    return Err(Error::NotFound(format!("carpeta {target}")));
+                }
+                a.name = file_name(target);
+            }
+            "link" => {
+                let lower = target.to_lowercase();
+                let url = if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") {
+                    target.to_string()
+                } else if target.contains('.') && !target.contains(' ') {
+                    format!("https://{target}")
+                } else {
+                    return Err(Error::Invalid("el enlace no parece una dirección web".into()));
+                };
+                a.target = url.clone();
+                a.name = url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_string();
+            }
+            _ => return Err(Error::Invalid(format!("tipo de adjunto desconocido: {kind}"))),
+        }
+        if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            a.name = n.to_string();
+        }
+        self.db.save_attachment(&a, data.as_deref())?;
+        Ok(a)
+    }
+
+    /// Devuelve lo que hay que abrir: la URL, la carpeta o una copia temporal descifrada del documento.
+    pub fn open_attachment(&self, id: &str) -> Result<String> {
+        let (a, data) = self.db.attachment(id)?;
+        match a.kind.as_str() {
+            "file" => {
+                let dir = std::env::temp_dir().join("calendario-adjuntos").join(&a.id);
+                std::fs::create_dir_all(&dir)?;
+                let safe: String = a.name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+                let path = dir.join(if safe.is_empty() { "documento".into() } else { safe });
+                std::fs::write(&path, data.unwrap_or_default())?;
+                Ok(path.display().to_string())
+            }
+            "folder" => {
+                if !Path::new(&a.target).is_dir() {
+                    return Err(Error::NotFound(format!("la carpeta ya no existe: {}", a.target)));
+                }
+                Ok(a.target)
+            }
+            _ => Ok(a.target),
+        }
+    }
+
+    /// Guarda una copia (descifrada) de un documento adjunto en otra ruta.
+    pub fn export_attachment(&self, id: &str, path: &Path) -> Result<()> {
+        let (a, data) = self.db.attachment(id)?;
+        if a.kind != "file" {
+            return Err(Error::Invalid("solo se pueden guardar documentos".into()));
+        }
+        std::fs::write(path, data.unwrap_or_default())?;
+        Ok(())
+    }
+
+    /// Borra las copias temporales de documentos abiertos.
+    pub fn clean_temp_attachments() {
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("calendario-adjuntos"));
     }
 
     // ---------------------------------------------------------------- avisos

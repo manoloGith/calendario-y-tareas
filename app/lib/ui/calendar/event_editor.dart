@@ -5,6 +5,7 @@ import '../../core/bridge.dart';
 import '../../core/dates.dart';
 import '../../core/models.dart';
 import '../../core/store.dart';
+import '../attachments.dart';
 import '../common.dart';
 import '../theme.dart';
 
@@ -57,6 +58,7 @@ class _EventEditorState extends State<EventEditor> {
   late final String? originalRule = e.rrule;
   late final String originalStart = e.start;
   String? hint;
+  final pendingAttachments = <Attachment>[];
 
   bool get isNew => e.id.isEmpty;
 
@@ -130,7 +132,16 @@ class _EventEditorState extends State<EventEditor> {
       }
     }
     try {
-      widget.store.mutate('events.save', {'event': e.toJson(), 'scope': scope, 'occurrence': ?occ});
+      final saved = widget.store.mutate('events.save', {'event': e.toJson(), 'scope': scope, 'occurrence': ?occ}) as Map<String, dynamic>;
+      for (final a in pendingAttachments) {
+        await Core.callAsync('attachments.add', {
+          'ownerKind': 'event',
+          'ownerId': saved['id'],
+          'kind': a.kind,
+          if (a.kind == 'link') 'url': a.target else 'path': a.target,
+        });
+      }
+      if (pendingAttachments.isNotEmpty) widget.store.reload();
       if (mounted) Navigator.pop(context);
     } catch (err) {
       if (mounted) showError(context, err);
@@ -164,7 +175,7 @@ class _EventEditorState extends State<EventEditor> {
     return Dialog(
       child: SizedBox(
         width: 520,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
@@ -261,6 +272,8 @@ class _EventEditorState extends State<EventEditor> {
             TextField(controller: location, readOnly: readonly, decoration: const InputDecoration(hintText: 'Ubicación', prefixIcon: Icon(Icons.place_outlined, size: 17))),
             const SizedBox(height: 8),
             TextField(controller: notes, readOnly: readonly, minLines: 2, maxLines: 6, decoration: const InputDecoration(hintText: 'Notas')),
+            const SizedBox(height: 12),
+            AttachmentsSection(store: widget.store, ownerKind: 'event', ownerId: isNew ? null : e.id, pending: pendingAttachments, readonly: readonly),
             const SizedBox(height: 16),
             Row(children: [
               if (!isNew && !readonly) TextButton(onPressed: _delete, child: Text('Eliminar', style: TextStyle(color: t.danger))),

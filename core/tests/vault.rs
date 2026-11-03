@@ -194,3 +194,44 @@ fn json_api_end_to_end() {
     assert_eq!(call("vault.lock", json!({}))["ok"], json!(true));
     assert_eq!(call("vault.open", json!({"path": path, "password": "mal"}))["code"], json!("wrong_password"));
 }
+
+#[test]
+fn attachments_documents_links_folders() {
+    let d = tmp("att");
+    let v = Vault::create(&d.join("v.db"), "contraseña-larga").unwrap();
+    let cal = work_cal(&v);
+    let t = v.quick_task("Preparar contrato", &cal, None).unwrap();
+    let doc = d.join("contrato.pdf");
+    std::fs::write(&doc, b"%PDF-1.7 contenido secreto").unwrap();
+    let a = v.add_attachment("task", &t.id, "file", &doc.display().to_string(), None).unwrap();
+    assert_eq!((a.name.as_str(), a.size), ("contrato.pdf", 26));
+    let l = v.add_attachment("task", &t.id, "link", "ejemplo.es/doc", Some("Borrador")).unwrap();
+    assert_eq!(l.target, "https://ejemplo.es/doc");
+    assert_eq!(l.name, "Borrador");
+    let f = v.add_attachment("task", &t.id, "folder", &d.display().to_string(), None).unwrap();
+    assert!(v.add_attachment("task", &t.id, "link", "no es un enlace", None).is_err());
+    assert!(v.add_attachment("task", &t.id, "folder", "/no/existe", None).is_err());
+    assert_eq!(v.db.attachments(&t.id).unwrap().len(), 3);
+    // El documento está copiado: aunque se borre el original, se puede abrir.
+    std::fs::remove_file(&doc).unwrap();
+    let opened = v.open_attachment(&a.id).unwrap();
+    assert_eq!(std::fs::read(&opened).unwrap(), b"%PDF-1.7 contenido secreto");
+    assert_eq!(v.open_attachment(&f.id).unwrap(), d.display().to_string());
+    // Va cifrado: el contenido no aparece en claro en la base de datos.
+    drop(v);
+    let raw = std::fs::read(d.join("v.db")).unwrap();
+    assert!(!raw.windows(17).any(|w| w == b"contenido secreto"));
+    let v = Vault::open(&d.join("v.db"), "contraseña-larga").unwrap();
+    // Viaja en las copias de seguridad.
+    let bak = d.join("c.calbak");
+    backup::create(&v.db, &bak, "clave-de-copia").unwrap();
+    let mut w = Vault::create(&d.join("w.db"), "contraseña-larga").unwrap();
+    backup::restore(&mut w.db, &bak, "clave-de-copia", true).unwrap();
+    assert_eq!(w.db.attachments(&t.id).unwrap().len(), 3);
+    assert!(w.open_attachment(&a.id).is_ok());
+    // Al borrar la tarea se borran sus adjuntos.
+    v.delete_task(&t.id).unwrap();
+    assert!(v.db.attachments(&t.id).unwrap().is_empty());
+    let list = v.tasks(&TaskFilter { list_id: Some(cal), ..Default::default() }).unwrap();
+    assert!(list.is_empty());
+}

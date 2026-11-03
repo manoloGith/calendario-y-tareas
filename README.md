@@ -97,7 +97,9 @@ Resultado:
 
 **Copias de seguridad.** Ajustes › Copias. El archivo `.calbak` contiene todo (también las cuentas) cifrado con la contraseña que elijas; se verifica al crearlo. Al restaurar puedes fusionar o reemplazar.
 
-**Widgets.** Ajustes › Widgets: «Solo calendario», «Calendario y eventos» y «Tareas». Se arrastran por la cabecera, recuerdan su posición, se refrescan solos y permiten dar de alta eventos y tareas. Para que sigan visibles con Win+D o «Mostrar escritorio», se anclan al escritorio (Windows: propietario = ventana del escritorio; macOS: nivel de escritorio en todos los Spaces; Linux: siempre al fondo). El icono de chincheta permite abrir la app o quitar el widget.
+**Adjuntos.** Eventos y tareas admiten documentos, enlaces y carpetas (botón del clip en «Adjuntos»). Los documentos se copian dentro de la base de datos, cifrados (máximo 50 MB cada uno), así que viajan con tus datos y en las copias de seguridad aunque borres el original; al abrirlos se descifra una copia temporal (los cambios que hagas en ella no se guardan en el adjunto: usa «Guardar una copia…»). Los enlaces se abren en el navegador y las carpetas en el explorador (son referencias: si la carpeta se mueve, deja de encontrarse). Los adjuntos no se sincronizan por CalDAV.
+
+**Widgets.** Ajustes › Widgets: «Solo calendario», «Calendario y eventos» y «Tareas». Se arrastran por la cabecera, se refrescan solos y permiten dar de alta eventos y tareas. **Doble clic en un día** de un widget abre la app en ese día con el formulario de nuevo evento (si la app estaba cerrada, la abre). **Tamaño:** al aparecer en un monitor nuevo se adaptan a su escala (DPI) y resolución; después puedes cambiarlo desde cualquier borde o con el asa de la esquina inferior derecha, y el contenido crece o encoge con él. La posición y el tamaño se guardan **para cada monitor y resolución**: si llevas la app en un USB a otro equipo, allí se usarán las medidas de ese monitor y al volver se recuperan las tuyas. Para que sigan visibles con Win+D o «Mostrar escritorio», se anclan al escritorio (Windows: propietario = ventana del escritorio; macOS: nivel de escritorio en todos los Spaces; Linux: siempre al fondo). El icono de chincheta permite abrir la app o quitar el widget.
 
 ## Arquitectura
 
@@ -146,11 +148,10 @@ Son 26 pruebas. Cubren:
   - el anclaje de widgets en Windows 11 24H2 y macOS.
 - **Linux con Wayland en GNOME:** los widgets no se pueden anclar al fondo (limitación del compositor); funcionan como ventanas normales.
 - **Ventana principal:** la de Windows y Linux dibuja su propio semáforo; en macOS se usa el nativo.
-- **Aún no implementado:** adjuntos cifrados, invitaciones a asistentes, varias zonas horarias en la vista.
+- **Aún no implementado:** invitaciones a asistentes, varias zonas horarias en la vista.
 - **CalDAV:** las ocurrencias modificadas de una serie (RECURRENCE-ID) que vienen del servidor se muestran, pero sus cambios locales no se suben por separado.
 
 ## Próximos pasos
 
 1. **Servidor zero-knowledge.** El cliente ya guarda un registro ordenado de cambios (`changes`) y dispone del sobre cifrado de `backup.rs`, que servirán para subir solo blobs cifrados y sincronizar entre dispositivos.
 2. **App móvil.** Flutter iOS/Android reutilizando el mismo núcleo Rust y gran parte de la interfaz.
-3. **Adjuntos cifrados.**

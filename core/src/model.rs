@@ -172,3 +172,23 @@ fn default_source() -> String {
 fn yes() -> bool {
     true
 }
+
+/// Adjunto de un evento o tarea. `kind`: "file" (documento copiado y cifrado), "link" (URL) o "folder" (ruta).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    #[serde(default)]
+    pub id: String,
+    /// "event" o "task"
+    pub owner_kind: String,
+    pub owner_id: String,
+    pub kind: String,
+    pub name: String,
+    /// URL (enlace), ruta (carpeta) o ruta original (documento).
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub created: String,
+}

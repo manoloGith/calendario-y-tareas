@@ -117,3 +117,15 @@ pub fn notify(title: &str, body: &str) -> Result<bool> {
         .map(|_| true)
         .map_err(|e| Error::Invalid(format!("no se pudo mostrar la notificación: {e}")))
 }
+
+/// Permite que otro proceso de la app (la ventana principal) pase a primer plano.
+/// Lo llama un widget justo antes de pedir a la app que se abra en un día concreto.
+#[cfg(windows)]
+pub fn allow_foreground() -> bool {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(u32::MAX) != 0 }
+}
+
+#[cfg(not(windows))]
+pub fn allow_foreground() -> bool {
+    true
+}

@@ -43,7 +43,17 @@ Future<void> main(List<String> args) async {
     await windowManager.show();
     await windowManager.focus();
   }));
-  runApp(CalendarioApp(store: AppStore(Settings.load())));
+  final store = AppStore(Settings.load());
+  // Doble clic en un día de un widget con la app cerrada: se abre en ese día con el formulario de evento.
+  final day = DateTime.tryParse(_arg(args, 'new-event') ?? '');
+  if (day != null) store.requestNewEvent(day);
+  store.onBringToFront = () async {
+    if (await windowManager.isMinimized()) await windowManager.restore();
+    await windowManager.show();
+    await windowManager.focus();
+  };
+  store.startAppHeartbeat();
+  runApp(CalendarioApp(store: store));
 }
 
 final _lightTheme = buildTheme(Tokens.light);

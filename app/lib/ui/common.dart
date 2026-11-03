@@ -255,8 +255,11 @@ class MiniMonth extends StatelessWidget {
     this.cell = 26,
     this.highlightWeek = false,
     this.showHeader = true,
+    this.onDoubleTap,
   });
   final DateTime month;
+  /// Doble clic en un día (widgets: abre la app con el formulario de nuevo evento).
+  final ValueChanged<DateTime>? onDoubleTap;
   final DateTime? selected;
   final ValueChanged<DateTime> onPick;
   final ValueChanged<DateTime>? onMonth;
@@ -301,6 +304,7 @@ class MiniMonth extends StatelessWidget {
               final dot = dots[fmtCoreDate(day)];
               return GestureDetector(
                 onTap: () => onPick(day),
+                onDoubleTap: onDoubleTap == null ? null : () => onDoubleTap!(day),
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: Container(

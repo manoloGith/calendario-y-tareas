@@ -4,6 +4,8 @@ use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::model::*;
 use argon2::{Algorithm, Argon2, Params, Version};
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use flate2::read::GzDecoder;
@@ -62,6 +64,18 @@ struct Snapshot {
     calendars: Vec<Calendar>,
     events: Vec<Event>,
     tasks: Vec<Task>,
+    #[serde(default)]
+    attachments: Vec<AttachmentFull>,
+}
+
+/// Adjunto con su contenido en base64 (va dentro de la copia cifrada).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachmentFull {
+    #[serde(flatten)]
+    meta: Attachment,
+    #[serde(default)]
+    data: Option<String>,
 }
 
 /// Las contraseñas CalDAV también viajan en la copia (va cifrada).
@@ -100,6 +114,11 @@ pub fn create(db: &Db, path: &Path, password: &str) -> Result<BackupInfo> {
         calendars: db.calendars()?,
         events: db.all_events()?,
         tasks: db.all_tasks()?,
+        attachments: db
+            .all_attachments()?
+            .into_iter()
+            .map(|(meta, data)| AttachmentFull { meta, data: data.map(|d| B64.encode(d)) })
+            .collect(),
     };
     let json = serde_json::to_vec(&snap)?;
     let mut gz = GzEncoder::new(Vec::new(), flate2::Compression::default());
@@ -166,7 +185,7 @@ pub fn restore(db: &mut Db, path: &Path, password: &str, replace: bool) -> Resul
     };
     db.transaction(|db| {
         if replace {
-            db.conn.execute_batch("DELETE FROM events; DELETE FROM tasks; DELETE FROM calendars; DELETE FROM accounts;")?;
+            db.conn.execute_batch("DELETE FROM attachments; DELETE FROM events; DELETE FROM tasks; DELETE FROM calendars; DELETE FROM accounts;")?;
         }
         for a in snap.accounts {
             let mut acc = a.account;
@@ -183,6 +202,13 @@ pub fn restore(db: &mut Db, path: &Path, password: &str, replace: bool) -> Resul
         let (roots, subs): (Vec<Task>, Vec<Task>) = snap.tasks.into_iter().partition(|t| t.parent_id.is_none());
         for mut t in roots.into_iter().chain(subs) {
             db.save_task(&mut t, false)?;
+        }
+        for at in snap.attachments {
+            let data = match at.data {
+                Some(d) => Some(B64.decode(d).map_err(|e| Error::Invalid(format!("adjunto dañado: {e}")))?),
+                None => None,
+            };
+            db.save_attachment(&at.meta, data.as_deref())?;
         }
         Ok(())
     })?;

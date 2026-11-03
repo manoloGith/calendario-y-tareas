@@ -274,7 +274,8 @@ class TaskNode {
         subDone = (j['subDone'] as num?)?.toInt() ?? 0,
         listName = j['listName'] as String? ?? '',
         listColor = j['listColor'] as String? ?? '#007AFF',
-        overdue = j['overdue'] as bool? ?? false;
+        overdue = j['overdue'] as bool? ?? false,
+        attachments = (j['attachments'] as num?)?.toInt() ?? 0;
 
   final TaskData task;
   final List<TaskData> children;
@@ -283,6 +284,7 @@ class TaskNode {
   final String listName;
   final String listColor;
   final bool overdue;
+  final int attachments;
 
   Color get color => parseHex(listColor);
 }
@@ -327,4 +329,31 @@ class QuickParse {
   final List<String> tags;
   final int priority;
   final String? rrule;
+}
+
+/// Adjunto: documento (copia cifrada), enlace o carpeta.
+class Attachment {
+  Attachment.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String? ?? '',
+        ownerKind = j['ownerKind'] as String? ?? '',
+        ownerId = j['ownerId'] as String? ?? '',
+        kind = j['kind'] as String,
+        name = j['name'] as String? ?? '',
+        target = j['target'] as String? ?? '',
+        size = (j['size'] as num?)?.toInt() ?? 0;
+
+  /// Adjunto aún no guardado (evento nuevo).
+  Attachment.pending(this.kind, this.target, this.name)
+      : id = '',
+        ownerKind = '',
+        ownerId = '',
+        size = 0;
+
+  final String id;
+  final String ownerKind;
+  final String ownerId;
+  final String kind;
+  final String name;
+  final String target;
+  final int size;
 }

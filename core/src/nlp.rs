@@ -111,7 +111,7 @@ pub fn parse(input: &str, now: NaiveDateTime) -> Quick {
     let mut tm: Option<NaiveTime> = None;
 
     // Ejecuta una regex sobre el texto normalizado restante y elimina la coincidencia.
-    let mut take = |re: &Regex, orig: &mut Vec<char>, norm: &mut Vec<char>| -> Option<Vec<Option<String>>> {
+    let take = |re: &Regex, orig: &mut Vec<char>, norm: &mut Vec<char>| -> Option<Vec<Option<String>>> {
         let n: String = norm.iter().map(|c| if *c == '\u{0}' { ' ' } else { *c }).collect();
         let caps = re.captures(&n)?;
         let m = caps.get(0)?;

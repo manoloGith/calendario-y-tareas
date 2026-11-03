@@ -42,10 +42,27 @@ class _ShellState extends State<Shell> {
     }
   }
 
+  bool _openingPending = false;
+
+  /// Atiende la petición de un widget: formulario de nuevo evento en el día pedido.
+  void _handlePending() {
+    final day = store.pendingNewEvent;
+    if (day == null || _openingPending) return;
+    _openingPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      store.pendingNewEvent = null;
+      final now = DateTime.now();
+      final start = sameDay(day, now) ? DateTime(day.year, day.month, day.day, now.hour + 1) : DateTime(day.year, day.month, day.day, 9);
+      if (mounted) await openEventEditor(context, store, start: start);
+      _openingPending = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
     final mod = Platform.isMacOS;
+    _handlePending();
     SingleActivator key(LogicalKeyboardKey k) => SingleActivator(k, meta: mod, control: !mod);
     return CallbackShortcuts(
       bindings: {

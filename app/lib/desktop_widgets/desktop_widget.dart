@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/bridge.dart';
@@ -26,14 +27,74 @@ String widgetTitle(String kind) => 'CalendarioWidget-$kind';
 final _lightTheme = buildTheme(Tokens.light).copyWith(scaffoldBackgroundColor: Colors.transparent);
 final _darkTheme = buildTheme(Tokens.darkTokens).copyWith(scaffoldBackgroundColor: Colors.transparent);
 
+/// Clave de un monitor: nombre + resolución física + escala (sirve también al cambiar de equipo con un USB).
+String monitorKey(Display d) {
+  final scale = (d.scaleFactor ?? 1).toDouble();
+  final w = (d.size.width * scale).round();
+  final h = (d.size.height * scale).round();
+  return '${d.name ?? d.id}|${w}x$h@${(scale * 100).round()}%';
+}
+
+Rect visibleRect(Display d) => (d.visiblePosition ?? Offset.zero) & (d.visibleSize ?? d.size);
+
+/// Monitor que contiene el centro de `r` (o el principal).
+Display displayFor(Rect r, List<Display> all, Display primary) {
+  for (final d in all) {
+    if (visibleRect(d).contains(r.center)) return d;
+  }
+  return primary;
+}
+
+/// Mantiene el rectángulo dentro del área visible del monitor.
+Rect clampInto(Rect r, Rect area) {
+  final w = r.width.clamp(80.0, area.width);
+  final h = r.height.clamp(80.0, area.height);
+  final x = r.left.clamp(area.left, area.right - w);
+  final y = r.top.clamp(area.top, area.bottom - h);
+  return Rect.fromLTWH(x, y, w, h);
+}
+
+/// Posición y tamaño iniciales: lo guardado para un monitor conectado o, si no hay, un tamaño adaptado a la resolución.
+Future<Rect> initialBounds(String kind, WidgetPrefs prefs) async {
+  final base = widgetSizes[kind] ?? const Size(320, 320);
+  List<Display> displays = [];
+  Display? primary;
+  try {
+    displays = await screenRetriever.getAllDisplays();
+    primary = await screenRetriever.getPrimaryDisplay();
+  } catch (_) {}
+  if (primary == null) return Offset(40.0 + Settings.widgetKinds.indexOf(kind) * 360, 60) & base;
+  final keys = {for (final d in displays) monitorKey(d): d};
+  // 1) el último monitor usado, si está conectado; 2) cualquier monitor conectado con medidas guardadas
+  for (final key in [?prefs.lastMonitor, ...prefs.layouts.keys]) {
+    final d = keys[key];
+    final l = prefs.layouts[key];
+    if (d != null && l != null) return clampInto(Rect.fromLTWH(l.x, l.y, l.w, l.h), visibleRect(d));
+  }
+  // 3) monitor nuevo: tamaño base (ya escalado por DPI) ajustado a la altura disponible de la pantalla
+  final area = visibleRect(primary);
+  final factor = (area.height / 1000).clamp(0.85, 1.8);
+  final size = Size(base.width * factor, base.height * factor);
+  var x = area.left + 40;
+  for (final k in Settings.widgetKinds.take(Settings.widgetKinds.indexOf(kind))) {
+    x += (widgetSizes[k]!.width * factor) + 24;
+  }
+  var pos = Offset(x, area.top + 60);
+  if (prefs.x != null && prefs.y != null) pos = Offset(prefs.x!, prefs.y!); // versiones anteriores
+  return clampInto(pos & size, area);
+}
+
 Future<void> runDesktopWidget(String kind, String vaultPath) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
   final settings = Settings.load()..vaultPath = vaultPath;
   final prefs = settings.widgets[kind]!;
-  final size = widgetSizes[kind] ?? const Size(320, 320);
+  final base = widgetSizes[kind] ?? const Size(320, 320);
+  final bounds = await initialBounds(kind, prefs);
   final options = WindowOptions(
-    size: size,
+    size: bounds.size,
+    minimumSize: Size(base.width * .6, base.height * .6),
+    maximumSize: Size(base.width * 3, base.height * 3),
     skipTaskbar: true,
     title: widgetTitle(kind),
     titleBarStyle: TitleBarStyle.hidden,
@@ -43,13 +104,8 @@ Future<void> runDesktopWidget(String kind, String vaultPath) async {
   unawaited(windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.setAsFrameless();
     await windowManager.setHasShadow(false);
-    await windowManager.setResizable(false);
-    if (prefs.x != null && prefs.y != null) {
-      await windowManager.setPosition(Offset(prefs.x!, prefs.y!));
-    } else {
-      final index = Settings.widgetKinds.indexOf(kind);
-      await windowManager.setPosition(Offset(40.0 + index * 360, 60));
-    }
+    await windowManager.setResizable(true);
+    await windowManager.setBounds(bounds);
     // Linux: siempre al fondo. En Windows NO se usa: window_manager lo reaplica en cada cambio de posición,
     // lo que provocaba parpadeos y bloqueaba el arrastre; allí el anclaje lo hace el núcleo (pinToDesktop).
     if (Platform.isLinux) {
@@ -112,14 +168,25 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
   }
 
   @override
-  void onWindowMoved() {
+  void onWindowMoved() => _saveLayout();
+
+  @override
+  void onWindowResized() => _saveLayout();
+
+  void _saveLayout() {
     saveTimer?.cancel();
     saveTimer = Timer(const Duration(milliseconds: 600), () async {
-      final p = await windowManager.getPosition();
+      final b = await windowManager.getBounds();
+      String key = 'principal';
+      try {
+        final all = await screenRetriever.getAllDisplays();
+        final primary = await screenRetriever.getPrimaryDisplay();
+        key = monitorKey(displayFor(b, all, primary));
+      } catch (_) {}
       final s = Settings.load();
-      s.widgets[widget.kind]!
-        ..x = p.dx
-        ..y = p.dy;
+      final p = s.widgets[widget.kind]!;
+      p.layouts[key] = WidgetLayout(b.left, b.top, b.width, b.height);
+      p.lastMonitor = key;
       s.save();
     });
   }
@@ -145,7 +212,11 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
       localizationsDelegates: const [SpanishMaterialDelegate()],
       home: Scaffold(
         backgroundColor: Colors.transparent,
-        body: _Glass(
+        body: DragToResizeArea(
+          resizeEdgeSize: 6,
+          child: _Scaled(
+            base: widgetSizes[widget.kind] ?? const Size(320, 320),
+            child: _Glass(
           child: ListenableBuilder(
             listenable: widget.store,
             builder: (context, _) => widget.store.unlocked
@@ -156,10 +227,27 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
                   }
                 : _LockedWidget(store: widget.store, error: widget.initialError),
           ),
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+/// Escala el contenido de forma uniforme según el tamaño de la ventana (diseñado para `base`).
+class _Scaled extends StatelessWidget {
+  const _Scaled({required this.base, required this.child});
+  final Size base;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
+        final s = (c.maxWidth / base.width < c.maxHeight / base.height ? c.maxWidth / base.width : c.maxHeight / base.height).clamp(0.5, 3.0);
+        return FittedBox(
+          fit: BoxFit.fill,
+          child: SizedBox(width: c.maxWidth / s, height: c.maxHeight / s, child: child),
+        );
+      });
 }
 
 class _Glass extends StatelessWidget {
@@ -174,9 +262,55 @@ class _Glass extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: t.dark ? const Color(0x1AFFFFFF) : const Color(0xB3FFFFFF)),
       ),
-      padding: const EdgeInsets.all(16),
-      child: child,
+      child: Stack(children: [
+        Positioned.fill(child: Padding(padding: const EdgeInsets.all(16), child: child)),
+        // Asa para cambiar el tamaño (también se puede desde cualquier borde).
+        Positioned(
+          right: 4,
+          bottom: 4,
+          child: Tooltip(
+            message: 'Arrastra para cambiar el tamaño',
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeDownRight,
+              child: GestureDetector(
+                onPanStart: (_) => windowManager.startResizing(ResizeEdge.bottomRight),
+                child: SizedBox(width: 16, height: 16, child: CustomPaint(painter: _GripPainter(t.faint.withValues(alpha: .6)))),
+              ),
+            ),
+          ),
+        ),
+      ]),
     );
+  }
+}
+
+class _GripPainter extends CustomPainter {
+  _GripPainter(this.color);
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    for (final o in [4.0, 8.0, 12.0]) {
+      canvas.drawLine(Offset(size.width - 2, size.height - 2 - o), Offset(size.width - 2 - o, size.height - 2), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GripPainter old) => old.color != color;
+}
+
+/// Doble clic en un día: abre la app en ese día con el formulario de nuevo evento.
+Future<void> openAppOn(DateTime day) async {
+  try {
+    Core.call('sys.allowForeground');
+  } catch (_) {}
+  if (appAlive()) {
+    requestFile().writeAsStringSync(jsonEncode({'action': 'newEvent', 'date': fmtCoreDate(day), 'at': DateTime.now().toIso8601String()}));
+  } else {
+    await Process.start(Platform.resolvedExecutable, ['--new-event=${fmtCoreDate(day)}'], mode: ProcessStartMode.detached);
   }
 }
 
@@ -289,7 +423,11 @@ class _CalendarWidgetState extends State<_CalendarWidget> {
           ]),
         ),
         const SizedBox(height: 4),
-        MiniMonth(month: month, showHeader: false, cell: 40, dots: _dots(widget.store, month), onPick: (_) {}),
+        Tooltip(
+          message: 'Doble clic en un día para añadir un evento',
+          waitDuration: const Duration(seconds: 1),
+          child: MiniMonth(month: month, showHeader: false, cell: 40, dots: _dots(widget.store, month), onPick: (_) {}, onDoubleTap: openAppOn),
+        ),
       ]);
 }
 
@@ -345,6 +483,7 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
             showHeader: false,
             cell: 33,
             selected: day,
+            onDoubleTap: openAppOn,
             onPick: (d) => setState(() {
               day = d;
               if (d.month != month.month) month = startOfMonth(d);

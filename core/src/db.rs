@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   deleted INTEGER NOT NULL DEFAULT 0, dirty INTEGER NOT NULL DEFAULT 0, remote_href TEXT, etag TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, completed);
+-- Adjuntos: documentos (copiados y cifrados dentro de la base de datos), enlaces y carpetas (referencias).
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY, owner_kind TEXT NOT NULL, owner_id TEXT NOT NULL, kind TEXT NOT NULL,
+  name TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0, data BLOB, created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_owner ON attachments(owner_id);
 -- Registro de cambios ordenado: base para la futura sincronización con el servidor zero-knowledge.
 CREATE TABLE IF NOT EXISTS changes (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, entity_id TEXT NOT NULL,
@@ -229,6 +235,11 @@ impl Db {
     }
 
     pub fn delete_calendar(&self, id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM attachments WHERE owner_id IN (SELECT id FROM events WHERE calendar_id=?1)
+               OR owner_id IN (SELECT id FROM tasks WHERE list_id=?1)",
+            params![id],
+        )?;
         self.conn.execute("DELETE FROM events WHERE calendar_id=?1", params![id])?;
         self.conn.execute("DELETE FROM tasks WHERE list_id=?1", params![id])?;
         self.conn.execute("DELETE FROM calendars WHERE id=?1", params![id])?;
@@ -367,6 +378,7 @@ impl Db {
 
     /// Borra un evento. En calendarios CalDAV deja una lápida hasta que el servidor confirma el borrado.
     pub fn delete_event(&self, id: &str) -> Result<()> {
+        self.delete_attachments_of(id)?;
         let href: Option<String> = self
             .conn
             .query_row("SELECT remote_href FROM events WHERE id=?1", params![id], |r| r.get(0))
@@ -385,6 +397,7 @@ impl Db {
     }
 
     pub fn purge_event(&self, id: &str) -> Result<()> {
+        self.delete_attachments_of(id)?;
         self.conn.execute("DELETE FROM events WHERE id=?1", params![id])?;
         Ok(())
     }
@@ -502,6 +515,7 @@ impl Db {
         for c in self.children(id)? {
             self.delete_task(&c.id)?;
         }
+        self.delete_attachments_of(id)?;
         let href: Option<String> = self
             .conn
             .query_row("SELECT remote_href FROM tasks WHERE id=?1", params![id], |r| r.get(0))
@@ -520,6 +534,7 @@ impl Db {
     }
 
     pub fn purge_task(&self, id: &str) -> Result<()> {
+        self.delete_attachments_of(id)?;
         self.conn.execute("DELETE FROM tasks WHERE id=?1", params![id])?;
         Ok(())
     }
@@ -556,6 +571,72 @@ impl Db {
         let sql = format!("UPDATE {table} SET remote_href=?2, etag=?3, dirty=0 WHERE id=?1");
         self.conn.execute(&sql, params![id, href, etag])?;
         Ok(())
+    }
+
+    // ---------------------------------------------------------------- adjuntos
+
+    pub fn attachments(&self, owner_id: &str) -> Result<Vec<Attachment>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, owner_kind, owner_id, kind, name, target, size, created FROM attachments WHERE owner_id=?1 ORDER BY created",
+        )?;
+        let rows = st.query_map(params![owner_id], Self::row_attachment)?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    fn row_attachment(r: &Row) -> rusqlite::Result<Attachment> {
+        Ok(Attachment {
+            id: r.get(0)?,
+            owner_kind: r.get(1)?,
+            owner_id: r.get(2)?,
+            kind: r.get(3)?,
+            name: r.get(4)?,
+            target: r.get(5)?,
+            size: r.get(6)?,
+            created: r.get(7)?,
+        })
+    }
+
+    pub fn attachment(&self, id: &str) -> Result<(Attachment, Option<Vec<u8>>)> {
+        self.conn
+            .query_row(
+                "SELECT id, owner_kind, owner_id, kind, name, target, size, created, data FROM attachments WHERE id=?1",
+                params![id],
+                |r| Ok((Self::row_attachment(r)?, r.get::<_, Option<Vec<u8>>>(8)?)),
+            )
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("adjunto {id}")))
+    }
+
+    pub fn save_attachment(&self, a: &Attachment, data: Option<&[u8]>) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO attachments(id, owner_kind, owner_id, kind, name, target, size, data, created)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![a.id, a.owner_kind, a.owner_id, a.kind, a.name, a.target, a.size, data, a.created],
+        )?;
+        self.log("attachment", &a.id, "upsert")?;
+        Ok(())
+    }
+
+    pub fn delete_attachment(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM attachments WHERE id=?1", params![id])?;
+        self.log("attachment", id, "delete")?;
+        Ok(())
+    }
+
+    pub fn delete_attachments_of(&self, owner_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM attachments WHERE owner_id=?1", params![owner_id])?;
+        Ok(())
+    }
+
+    pub fn attachment_count(&self, owner_id: &str) -> Result<i64> {
+        Ok(self.conn.query_row("SELECT count(*) FROM attachments WHERE owner_id=?1", params![owner_id], |r| r.get(0))?)
+    }
+
+    /// Todos los adjuntos con su contenido (para las copias de seguridad).
+    pub fn all_attachments(&self) -> Result<Vec<(Attachment, Option<Vec<u8>>)>> {
+        let mut st = self.conn.prepare("SELECT id, owner_kind, owner_id, kind, name, target, size, created, data FROM attachments")?;
+        let rows = st.query_map([], |r| Ok((Self::row_attachment(r)?, r.get::<_, Option<Vec<u8>>>(8)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
     // ---------------------------------------------------------------- búsqueda
