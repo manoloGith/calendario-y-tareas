@@ -59,11 +59,25 @@ jobs:
           flutter analyze lib tool
       - name: Compilar (Linux / macOS)
         if: runner.os != 'Windows'
-        run: ./tool/build.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tool/build.sh 2>&1 | tee build.log || {
+            # Publica el final del error como anotación (visible en el resumen de la ejecución).
+            msg=$(grep -iE "error|fatal|undefined|failed|no such" build.log | tail -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Fallo de compilación::${msg}"
+            exit 1
+          }
       - name: Compilar (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./tool/build.ps1
+        run: |
+          ./tool/build.ps1 *>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0 -or -not $?) {
+            $msg = (Select-String -Path build.log -Pattern 'error|fatal|failed' | Select-Object -Last 25 | ForEach-Object { $_.Line }) -join '%0A'
+            Write-Output "::error title=Fallo de compilación::$msg"
+            exit 1
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: calendario-${{ runner.os }}
