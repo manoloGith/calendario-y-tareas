@@ -1,0 +1,67 @@
+# Compila y prueba en Windows, macOS y Linux reales en cada push.
+name: Compilar y probar
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    name: Pruebas del núcleo (con servidor CalDAV)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Servidor CalDAV de pruebas (Radicale)
+        run: |
+          pip install radicale
+          mkdir -p /tmp/radicale
+          printf '[server]\nhosts = 127.0.0.1:5232\n[auth]\ntype = none\n[storage]\nfilesystem_folder = /tmp/radicale/col\n[rights]\ntype = owner_only\n' > /tmp/radicale/config
+          nohup python -m radicale --config /tmp/radicale/config > /tmp/radicale/log 2>&1 &
+          sleep 3
+      - name: cargo test
+        working-directory: core
+        env:
+          CALDAV_TEST_URL: http://127.0.0.1:5232/
+          CALENDARIO_TZ: Europe/Madrid
+        run: cargo test
+
+  build:
+    name: App (${{ matrix.os }})
+    needs: core-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Dependencias de Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+      - name: Análisis estático (Dart)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze lib tool
+      - name: Compilar (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: ./tool/build.sh
+      - name: Compilar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tool/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calendario-${{ runner.os }}
+          path: |
+            app/build/linux/x64/release/bundle/
+            app/build/windows/x64/runner/Release/
+            app/build/macos/Build/Products/Release/calendario.app/

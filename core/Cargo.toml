@@ -1,0 +1,42 @@
+[package]
+name = "calendario_core"
+version = "0.1.0"
+edition = "2021"
+description = "Núcleo local-first de Calendario y Tareas: almacenamiento cifrado, recurrencias, .ics, CalDAV y copias de seguridad"
+license = "MIT"
+
+[lib]
+name = "calendario_core"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+rrule = "0.13"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+quick-xml = "0.36"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+flate2 = "1"
+thiserror = "1"
+regex = "1"
+iana-time-zone = "0.1"
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+notify-rust = "4"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+strip = true

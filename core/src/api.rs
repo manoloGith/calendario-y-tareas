@@ -1,0 +1,307 @@
+//! API JSON que consume la interfaz Flutter (vía FFI). Una petición: {"method": "...", "params": {...}}.
+//! Respuesta: {"ok": true, "data": ...} o {"ok": false, "error": "..."}.
+use crate::backup;
+use crate::error::{Error, Result};
+use crate::model::*;
+use crate::nlp;
+use crate::time;
+use crate::vault::{self, TaskFilter, Vault};
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static VAULT: Mutex<Option<Vault>> = Mutex::new(None);
+
+const KEYRING_SERVICE: &str = "calendario-y-tareas";
+
+fn keyring_entry(path: &Path) -> Result<keyring::Entry> {
+    let user = format!("vault:{}", path.display());
+    keyring::Entry::new(KEYRING_SERVICE, &user).map_err(|e| Error::Keyring(e.to_string()))
+}
+
+fn p<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T> {
+    serde_json::from_value(params.get(key).cloned().unwrap_or(Value::Null))
+        .map_err(|e| Error::Invalid(format!("parámetro «{key}»: {e}")))
+}
+
+fn opt<T: DeserializeOwned>(params: &Value, key: &str) -> Option<T> {
+    params.get(key).cloned().filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok())
+}
+
+fn with<T>(f: impl FnOnce(&mut Vault) -> Result<T>) -> Result<T> {
+    let mut g = VAULT.lock().unwrap_or_else(|e| e.into_inner());
+    let v = g.as_mut().ok_or(Error::Locked)?;
+    f(v)
+}
+
+pub fn handle(request: &str) -> String {
+    let out = match serde_json::from_str::<Value>(request) {
+        Ok(req) => {
+            let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("").to_string();
+            let params = req.get("params").cloned().unwrap_or(json!({}));
+            dispatch(&method, &params)
+        }
+        Err(e) => Err(Error::Invalid(format!("petición no válida: {e}"))),
+    };
+    match out {
+        Ok(data) => json!({"ok": true, "data": data}).to_string(),
+        Err(e) => json!({"ok": false, "error": e.to_string(), "code": code(&e)}).to_string(),
+    }
+}
+
+fn code(e: &Error) -> &'static str {
+    match e {
+        Error::WrongPassword => "wrong_password",
+        Error::Locked => "locked",
+        Error::NotFound(_) => "not_found",
+        Error::Invalid(_) => "invalid",
+        Error::Net(_) => "offline",
+        Error::CalDav(_) => "caldav",
+        _ => "error",
+    }
+}
+
+fn dispatch(method: &str, a: &Value) -> Result<Value> {
+    Ok(match method {
+        // ------------------------------------------------------------ bóveda
+        "sys.version" => json!({"version": env!("CARGO_PKG_VERSION"), "tz": time::system_tzid()}),
+        "vault.exists" => {
+            let path: PathBuf = p(a, "path")?;
+            json!(path.exists())
+        }
+        "vault.create" => {
+            let path: PathBuf = p(a, "path")?;
+            let pw: String = p(a, "password")?;
+            let v = Vault::create(&path, &pw)?;
+            if opt::<bool>(a, "remember").unwrap_or(false) {
+                let _ = keyring_entry(&path).and_then(|e| e.set_password(&pw).map_err(|e| Error::Keyring(e.to_string())));
+            }
+            *VAULT.lock().unwrap_or_else(|e| e.into_inner()) = Some(v);
+            json!(true)
+        }
+        "vault.open" => {
+            let path: PathBuf = p(a, "path")?;
+            let pw: String = match opt::<String>(a, "password") {
+                Some(pw) => pw,
+                None => keyring_entry(&path)?
+                    .get_password()
+                    .map_err(|_| Error::Keyring("no hay contraseña guardada en este equipo".into()))?,
+            };
+            let v = Vault::open(&path, &pw)?;
+            if opt::<bool>(a, "remember").unwrap_or(false) {
+                let _ = keyring_entry(&path).and_then(|e| e.set_password(&pw).map_err(|e| Error::Keyring(e.to_string())));
+            }
+            *VAULT.lock().unwrap_or_else(|e| e.into_inner()) = Some(v);
+            json!(true)
+        }
+        "vault.isOpen" => json!(VAULT.lock().unwrap_or_else(|e| e.into_inner()).is_some()),
+        "vault.lock" => {
+            *VAULT.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            json!(true)
+        }
+        "vault.remembered" => {
+            let path: PathBuf = p(a, "path")?;
+            json!(keyring_entry(&path).map(|e| e.get_password().is_ok()).unwrap_or(false))
+        }
+        "vault.forget" => {
+            let path: PathBuf = p(a, "path")?;
+            let _ = keyring_entry(&path).map(|e| e.delete_credential());
+            json!(true)
+        }
+        "vault.remember" => with(|v| {
+            let (path, pw) = v.credentials();
+            keyring_entry(&path)?.set_password(&pw).map_err(|e| Error::Keyring(e.to_string()))?;
+            Ok(json!(true))
+        })?,
+        "vault.changePassword" => with(|v| {
+            let old: String = p(a, "old")?;
+            let new: String = p(a, "new")?;
+            v.change_password(&old, &new)?;
+            let (path, _) = v.credentials();
+            if let Ok(e) = keyring_entry(&path) {
+                if e.get_password().is_ok() {
+                    let _ = e.set_password(&new);
+                }
+            }
+            Ok(json!(true))
+        })?,
+        "vault.info" => with(|v| {
+            Ok(json!({
+                "path": v.path.display().to_string(),
+                "tz": time::system_tzid(),
+                "pending": v.db.pending_changes()?,
+                "dataVersion": v.db.data_version()?,
+            }))
+        })?,
+        "vault.dataVersion" => with(|v| Ok(json!(v.db.data_version()?)))?,
+
+        // ------------------------------------------------------------ calendarios
+        "calendars.list" => with(|v| Ok(json!(v.db.calendars()?)))?,
+        "calendars.save" => with(|v| {
+            let mut c: Calendar = p(a, "calendar")?;
+            if c.name.trim().is_empty() {
+                return Err(Error::Invalid("el calendario necesita un nombre".into()));
+            }
+            if c.id.is_empty() {
+                c.position = v.db.calendars()?.len() as i64;
+            } else {
+                // Los campos de origen no se cambian desde la interfaz.
+                let old = v.db.calendar(&c.id)?;
+                c.source = old.source;
+                c.ics_path = old.ics_path;
+                c.account_id = old.account_id;
+                c.remote_url = old.remote_url;
+                c.ctag = old.ctag;
+            }
+            v.db.save_calendar(&mut c)?;
+            Ok(json!(c))
+        })?,
+        "calendars.delete" => with(|v| {
+            let id: String = p(a, "id")?;
+            v.db.delete_calendar(&id)?;
+            Ok(json!(true))
+        })?,
+
+        // ------------------------------------------------------------ eventos
+        "events.range" => with(|v| Ok(json!(v.range(&p::<String>(a, "from")?, &p::<String>(a, "to")?)?)))?,
+        "events.get" => with(|v| Ok(json!(v.db.event(&p::<String>(a, "id")?)?)))?,
+        "events.save" => with(|v| {
+            let e: Event = p(a, "event")?;
+            let scope = opt::<String>(a, "scope").unwrap_or_else(|| "all".into());
+            let occ = opt::<String>(a, "occurrence");
+            Ok(json!(v.save_event(e, &scope, occ.as_deref())?))
+        })?,
+        "events.delete" => with(|v| {
+            let scope = opt::<String>(a, "scope").unwrap_or_else(|| "all".into());
+            let occ = opt::<String>(a, "occurrence");
+            v.delete_event(&p::<String>(a, "id")?, &scope, occ.as_deref())?;
+            Ok(json!(true))
+        })?,
+        "events.quickAdd" => with(|v| Ok(json!(v.quick_event(&p::<String>(a, "text")?, &p::<String>(a, "calendarId")?)?)))?,
+
+        // ------------------------------------------------------------ tareas
+        "tasks.list" => with(|v| {
+            let f: TaskFilter = opt(a, "filter").unwrap_or_default();
+            Ok(json!(v.tasks(&f)?))
+        })?,
+        "tasks.range" => with(|v| Ok(json!(v.tasks_in_range(&p::<String>(a, "from")?, &p::<String>(a, "to")?)?)))?,
+        "tasks.counts" => with(|v| Ok(json!(v.counts()?)))?,
+        "tasks.get" => with(|v| Ok(json!(v.db.task(&p::<String>(a, "id")?)?)))?,
+        "tasks.save" => with(|v| Ok(json!(v.save_task(p(a, "task")?)?)))?,
+        "tasks.toggle" => with(|v| Ok(json!(v.toggle_task(&p::<String>(a, "id")?)?)))?,
+        "tasks.delete" => with(|v| {
+            v.delete_task(&p::<String>(a, "id")?)?;
+            Ok(json!(true))
+        })?,
+        "tasks.quickAdd" => with(|v| {
+            Ok(json!(v.quick_task(&p::<String>(a, "text")?, &p::<String>(a, "listId")?, opt(a, "parentId"))?))
+        })?,
+        "tags.list" => with(|v| Ok(json!(v.db.tags()?)))?,
+        "search" => with(|v| {
+            let (events, tasks) = v.db.search(&p::<String>(a, "q")?)?;
+            Ok(json!({"events": events, "tasks": tasks}))
+        })?,
+        "nlp.parse" => {
+            let text: String = p(a, "text")?;
+            json!(nlp::parse(&text, time::now_local(&time::system_tzid())))
+        }
+        "alarms.between" => with(|v| Ok(json!(v.alarms_between(&p::<String>(a, "from")?, &p::<String>(a, "to")?)?)))?,
+
+        // ------------------------------------------------------------ .ics
+        "ics.import" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            let cid = opt::<String>(a, "calendarId");
+            let (cal, n) = v.import_ics(&path, cid.as_deref())?;
+            Ok(json!({"calendar": cal, "count": n}))
+        })?,
+        "ics.link" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            let (cal, n) = v.link_ics(&path, opt(a, "readonly").unwrap_or(false))?;
+            Ok(json!({"calendar": cal, "count": n}))
+        })?,
+        "ics.export" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            Ok(json!(v.export_ics(&p::<String>(a, "calendarId")?, &path)?))
+        })?,
+        "ics.refresh" => with(|v| Ok(json!(v.refresh_ics()?)))?,
+
+        // ------------------------------------------------------------ CalDAV
+        "caldav.accounts" => with(|v| Ok(json!(v.db.accounts()?)))?,
+        "caldav.add" => {
+            // El descubrimiento usa la red: se hace sin retener el bloqueo de la bóveda.
+            let name: String = opt(a, "name").unwrap_or_default();
+            let url: String = p(a, "url")?;
+            let user: String = p(a, "username")?;
+            let pass: String = p(a, "password")?;
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let tmp = Vault::open(&path, &pw)?;
+            let (acc, cals) = tmp.add_caldav(&name, &url, &user, &pass)?;
+            drop(tmp);
+            let res = vault::sync_accounts(&path, &pw, Some(&acc.id))?;
+            json!({"account": acc, "calendars": cals, "sync": sync_json(res)})
+        }
+        "caldav.remove" => with(|v| {
+            v.db.delete_account(&p::<String>(a, "id")?)?;
+            Ok(json!(true))
+        })?,
+        "caldav.sync" => {
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let id = opt::<String>(a, "accountId");
+            sync_json(vault::sync_accounts(&path, &pw, id.as_deref())?)
+        }
+        "caldav.createCalendar" => {
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let tmp = Vault::open(&path, &pw)?;
+            let c = tmp.create_remote_calendar(
+                &p::<String>(a, "accountId")?,
+                &p::<String>(a, "name")?,
+                &opt::<String>(a, "color").unwrap_or("#007AFF".into()),
+                &opt::<String>(a, "kind").unwrap_or("both".into()),
+            )?;
+            json!(c)
+        }
+
+        // ------------------------------------------------------------ copias de seguridad
+        "backup.create" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            Ok(json!(backup::create(&v.db, &path, &p::<String>(a, "password")?)?))
+        })?,
+        "backup.inspect" => {
+            let path: PathBuf = p(a, "path")?;
+            json!(backup::inspect(&path, &p::<String>(a, "password")?)?)
+        }
+        "backup.restore" => with(|v| {
+            let path: PathBuf = p(a, "path")?;
+            let replace = opt::<bool>(a, "replace").unwrap_or(false);
+            Ok(json!(backup::restore(&mut v.db, &path, &p::<String>(a, "password")?, replace)?))
+        })?,
+
+        // ------------------------------------------------------------ sistema
+        "sys.pinToDesktop" => {
+            let title: String = p(a, "title")?;
+            json!(crate::desktop::pin_to_desktop(&title)?)
+        }
+        "sys.pickFile" => {
+            let mode: String = opt(a, "mode").unwrap_or_else(|| "open".into());
+            let title: String = opt(a, "title").unwrap_or_default();
+            let exts: Vec<String> = opt(a, "extensions").unwrap_or_default();
+            let fname: String = opt(a, "filterName").unwrap_or_else(|| "Archivos".into());
+            let def: Option<String> = opt(a, "defaultName");
+            json!(crate::desktop::pick_file(&mode, &title, &fname, &exts, def.as_deref()))
+        }
+        "sys.notify" => json!(crate::desktop::notify(&p::<String>(a, "title")?, &opt::<String>(a, "body").unwrap_or_default())?),
+        _ => return Err(Error::Invalid(format!("método desconocido: {method}"))),
+    })
+}
+
+fn sync_json(res: Vec<(String, std::result::Result<crate::caldav::SyncStats, String>)>) -> Value {
+    Value::Array(
+        res.into_iter()
+            .map(|(id, r)| match r {
+                Ok(s) => json!({"accountId": id, "ok": true, "stats": s}),
+                Err(e) => json!({"accountId": id, "ok": false, "error": e}),
+            })
+            .collect(),
+    )
+}

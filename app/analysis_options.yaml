@@ -1,0 +1,10 @@
+analyzer:
+  language:
+    strict-casts: false
+  errors:
+    todo: ignore
+linter:
+  rules:
+    - prefer_const_constructors
+    - avoid_print
+    - unawaited_futures
