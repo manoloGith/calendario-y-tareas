@@ -358,6 +358,7 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
             let def: Option<String> = opt(a, "defaultName");
             json!(crate::desktop::pick_file(&mode, &title, &fname, &exts, def.as_deref()))
         }
+        "sys.singleInstance" => json!(crate::desktop::single_instance(&p::<String>(a, "key")?)),
         "sys.allowForeground" => json!(crate::desktop::allow_foreground()),
         "sys.notify" => json!(crate::desktop::notify(&p::<String>(a, "title")?, &opt::<String>(a, "body").unwrap_or_default())?),
         _ => return Err(Error::Invalid(format!("método desconocido: {method}"))),

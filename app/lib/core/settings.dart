@@ -2,6 +2,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'bridge.dart';
+
 String? _dataDir;
 
 /// Carpeta «datos» junto al ejecutable (modo portable). En macOS, junto al .app.
@@ -219,9 +221,18 @@ String _resolveVault(String? stored, bool custom) {
 
 RandomAccessFile? _lock;
 
-/// Instancia única: devuelve false si otro proceso ya tiene el bloqueo `name`.
-/// Si el bloqueo no se puede crear (carpeta sin permisos), no se impide el arranque.
+/// Instancia única: devuelve false si otro proceso de esta app ya tiene `name` («app», «widget-tasks»…).
+///  - Windows: mutex con nombre del sistema (vía núcleo Rust), propio de la carpeta de la app.
+///  - macOS y Linux: bloqueo exclusivo sobre el primer byte de un archivo `.lock`.
+/// Si no se puede comprobar, no se impide el arranque.
 bool acquireInstanceLock(String name) {
+  if (Platform.isWindows) {
+    try {
+      return Core.call('sys.singleInstance', {'key': '${appBaseDir()}|$name'}) as bool;
+    } catch (_) {
+      return true;
+    }
+  }
   RandomAccessFile raf;
   try {
     raf = File(joinPath(appDataDir(), '$name.lock')).openSync(mode: FileMode.append);
@@ -229,7 +240,8 @@ bool acquireInstanceLock(String name) {
     return true;
   }
   try {
-    raf.lockSync(FileLock.exclusive); // no bloqueante: falla si ya está cogido
+    // Rango explícito: con «hasta el final» un archivo vacío no quedaba bloqueado.
+    raf.lockSync(FileLock.exclusive, 0, 1);
     _lock = raf; // se mantiene abierto mientras viva el proceso
     return true;
   } catch (_) {
@@ -238,5 +250,4 @@ bool acquireInstanceLock(String name) {
   }
 }
 
-/// Mantiene la referencia para que el analizador no avise de que no se usa.
 bool get holdsInstanceLock => _lock != null;

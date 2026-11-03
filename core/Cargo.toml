@@ -32,7 +32,7 @@ notify-rust = "4"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Security"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"

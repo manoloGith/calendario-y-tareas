@@ -85,6 +85,8 @@ void linux() {
     return r;
   }, 'transparencia y barra de título');
   patch('linux/CMakeLists.txt', (s) {
+    // tray_manager usa app_indicator_new (obsoleta en libayatana): que el aviso no detenga la compilación.
+    s = s.replaceFirst('PRIVATE -Wall -Werror)', 'PRIVATE -Wall -Werror -Wno-error=deprecated-declarations)');
     if (s.contains('calendario_core')) return s;
     return '''$s
 # Biblioteca nativa del núcleo (Rust)

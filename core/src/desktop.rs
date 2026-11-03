@@ -129,3 +129,31 @@ pub fn allow_foreground() -> bool {
 pub fn allow_foreground() -> bool {
     true
 }
+
+/// Instancia única en Windows: un mutex con nombre (propio de esta carpeta de la app). Devuelve false si
+/// ya existe, es decir, si otro proceso de la app con la misma `key` está en marcha. El mutex se mantiene
+/// abierto hasta que el proceso termina (Windows lo libera solo, también si la app se cierra de golpe).
+#[cfg(windows)]
+pub fn single_instance(key: &str) -> bool {
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    // Nombre sin barras (no se admiten tras el prefijo «Local\»): hash FNV-1a de la clave.
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in key.to_lowercase().bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    let name: Vec<u16> = format!("Local\\CalendarioYTareas-{h:016x}").encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+        if handle.is_null() {
+            return true; // sin mutex no se impide el arranque
+        }
+        GetLastError() != ERROR_ALREADY_EXISTS
+    }
+}
+
+#[cfg(not(windows))]
+pub fn single_instance(_key: &str) -> bool {
+    true // en macOS y Linux se usa el bloqueo de archivo de la app
+}
