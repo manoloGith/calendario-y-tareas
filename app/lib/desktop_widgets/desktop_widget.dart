@@ -42,6 +42,9 @@ ThemeData _theme(bool dark, String? font, String? accent) => _themes.putIfAbsent
   return (w, h);
 }
 
+/// Tamaño base del número de los días en los widgets (al 100 %).
+const double _dayFont = 14;
+
 /// Tamaño de texto de una parte del widget (Ajustes › Widgets).
 double _ts(AppStore store, String key) => (store.settings.widgetText[key] ?? 1.0).clamp(0.7, 2.0);
 
@@ -536,7 +539,17 @@ class _CalendarWidgetState extends State<_CalendarWidget> {
             return Tooltip(
               message: 'Doble clic en un día para añadir un evento',
               waitDuration: const Duration(seconds: 1),
-              child: MiniMonth(month: month, showHeader: false, cell: cellW, cellHeight: cellH, dots: _dots(store, month), onPick: (_) {}, onDoubleTap: openAppOn, todayColor: accent),
+              child: MiniMonth(
+                month: month,
+                showHeader: false,
+                cell: cellW,
+                cellHeight: cellH,
+                dayFontSize: _dayFont * _ts(store, 'calendar.body'),
+                dots: _dots(store, month),
+                onPick: (_) {},
+                onDoubleTap: openAppOn,
+                todayColor: accent,
+              ),
             );
           }),
         ),
@@ -615,6 +628,7 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
                   showHeader: false,
                   cell: cellW,
                   cellHeight: cellH,
+                  dayFontSize: _dayFont * _ts(store, 'agenda.calBody'),
                   selected: day,
                   todayColor: accent,
                   onDoubleTap: openAppOn,

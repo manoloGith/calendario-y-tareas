@@ -258,7 +258,10 @@ class MiniMonth extends StatelessWidget {
     this.onDoubleTap,
     this.todayColor = const Color(0xFFFF3B30),
     this.cellHeight,
+    this.dayFontSize,
   });
+  /// Tamaño fijo del número de los días (widgets: lo marca el ajuste de texto). Si es null, se ajusta a la casilla.
+  final double? dayFontSize;
   /// Alto de cada fila (por defecto igual que el ancho `cell`): permite llenar un espacio no cuadrado.
   final double? cellHeight;
   /// Color del círculo de «hoy» (los widgets usan su color de acento).
@@ -337,10 +340,13 @@ class MiniMonth extends StatelessWidget {
                           color: isToday ? todayColor : (isSel ? t.pill : Colors.transparent),
                         ),
                         child: FittedBox(
+                          // Solo reduce si el número no cabe en la casilla.
                           fit: BoxFit.scaleDown,
                           child: Text('${day.day}',
+                            // Con tamaño fijo, ya incluye el ajuste del usuario: no se vuelve a escalar.
+                            textScaler: dayFontSize != null ? TextScaler.noScaling : null,
                             style: TextStyle(
-                              fontSize: circle * .46,
+                              fontSize: dayFontSize ?? circle * .46,
                               fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w400,
                               color: isToday ? Colors.white : (inMonth ? t.text : t.faint),
                             )),
