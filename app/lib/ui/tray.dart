@@ -66,8 +66,7 @@ class AppTray with TrayListener, WindowListener {
         store.requestNewEvent(DateTime.now());
         show();
       case 'task':
-        store.selectScope(const TaskScope.smart('today'));
-        store.requestNewTask = true;
+        store.requestTask();
         show();
       case 'lock':
         if (store.unlocked) store.lock();

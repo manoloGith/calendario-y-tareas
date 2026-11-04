@@ -57,6 +57,9 @@ pub struct TaskFilter {
     pub tag: Option<String>,
     #[serde(default)]
     pub include_completed: bool,
+    /// Para `smart = "upcoming"`: fecha (exclusiva) hasta la que se listan.
+    #[serde(default)]
+    pub until: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -174,6 +177,18 @@ impl Vault {
             }
         }
         out.sort_by(|a, b| (!a.all_day, &a.start, &a.title).cmp(&(!b.all_day, &b.start, &b.title)));
+        let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        for o in out.iter_mut() {
+            let n = match counts.get(&o.event_id) {
+                Some(n) => *n,
+                None => {
+                    let n = self.db.attachment_count(&o.event_id)?;
+                    counts.insert(o.event_id.clone(), n);
+                    n
+                }
+            };
+            o.attachments = n;
+        }
         Ok(out)
     }
 
@@ -287,8 +302,20 @@ impl Vault {
         let done = if f.include_completed { "1=1" } else { "completed=0" };
         let list = match (&f.list_id, f.smart.as_deref(), &f.tag) {
             (Some(l), _, _) => self.db.tasks_where(&format!("parent_id IS NULL AND list_id=?1 AND {done}"), &[l])?,
-            (_, Some("today"), _) => self.db.tasks_where("completed=0 AND due IS NOT NULL AND due < ?1", &[&tomorrow])?,
-            (_, Some("scheduled"), _) => self.db.tasks_where("completed=0 AND due IS NOT NULL", &[])?,
+            // Hoy: vencidas o que vencen hoy, y las que ya han empezado (en curso).
+            (_, Some("today"), _) => self.db.tasks_where(
+                "completed=0 AND ((due IS NOT NULL AND due < ?1) OR (start IS NOT NULL AND start < ?1))",
+                &[&tomorrow],
+            )?,
+            // Próximas: lo mismo, hasta la fecha `until` (widgets: 3, 7, 15 días…).
+            (_, Some("upcoming"), _) => {
+                let until = f.until.clone().unwrap_or_else(|| tomorrow.clone());
+                self.db.tasks_where(
+                    "completed=0 AND ((due IS NOT NULL AND due < ?1) OR (start IS NOT NULL AND start < ?1))",
+                    &[&until],
+                )?
+            }
+            (_, Some("scheduled"), _) => self.db.tasks_where("completed=0 AND (due IS NOT NULL OR start IS NOT NULL)", &[])?,
             (_, Some("flagged"), _) => self.db.tasks_where("completed=0 AND flagged=1", &[])?,
             (_, Some("completed"), _) => self.db.tasks_where("completed=1 AND parent_id IS NULL", &[])?,
             (_, _, Some(tag)) => {
@@ -299,8 +326,8 @@ impl Vault {
         };
         let cals = self.db.calendars()?;
         let mut out: Vec<TaskNode> = list.into_iter().map(|t| self.node(t, &cals, &today)).collect::<Result<_>>()?;
-        if matches!(f.smart.as_deref(), Some("today") | Some("scheduled")) {
-            out.sort_by(|a, b| a.task.due.cmp(&b.task.due));
+        if matches!(f.smart.as_deref(), Some("today") | Some("scheduled") | Some("upcoming")) {
+            out.sort_by(|a, b| a.task.due.as_ref().or(a.task.start.as_ref()).cmp(&b.task.due.as_ref().or(b.task.start.as_ref())));
         }
         if f.smart.as_deref() == Some("completed") {
             out.sort_by(|a, b| b.task.completed_at.cmp(&a.task.completed_at));
@@ -314,6 +341,7 @@ impl Vault {
         let visible: Vec<String> = cals.iter().filter(|c| c.visible).map(|c| c.id.clone()).collect();
         let today = time::fmt_date(&time::now_local(&self.view_tz()));
         let list = self.db.tasks_where("due IS NOT NULL AND due >= ?1 AND due < ?2", &[&from, &to])?;
+        // (las tareas se muestran en el calendario el día en que vencen)
         list.into_iter()
             .filter(|t| visible.contains(&t.list_id))
             .map(|t| self.node(t, &cals, &today))
@@ -336,8 +364,8 @@ impl Vault {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(Counts {
-            today: q("completed=0 AND due IS NOT NULL AND due < ?1", &[&tomorrow])?,
-            scheduled: q("completed=0 AND due IS NOT NULL", &[])?,
+            today: q("completed=0 AND ((due IS NOT NULL AND due < ?1) OR (start IS NOT NULL AND start < ?1))", &[&tomorrow])?,
+            scheduled: q("completed=0 AND (due IS NOT NULL OR start IS NOT NULL)", &[])?,
             all: q("completed=0 AND parent_id IS NULL", &[])?,
             flagged: q("completed=0 AND flagged=1", &[])?,
             completed: q("completed=1 AND parent_id IS NULL", &[])?,
@@ -403,6 +431,10 @@ impl Vault {
                 let d = time::parse_local(&due).unwrap();
                 let from = time::now_local(&t.tzid).max(d);
                 if let Some(next) = recur::next_after(&d, &t.tzid, &rule, &from) {
+                    if let Some(s) = t.start.clone().and_then(|s| time::parse_local(&s).map(|p| (s, p))) {
+                        let shifted = s.1 + (next - d);
+                        t.start = Some(if s.0.contains('T') { time::fmt_local(&shifted) } else { time::fmt_date(&shifted) });
+                    }
                     t.due = Some(if due.contains('T') { time::fmt_local(&next) } else { time::fmt_date(&next) });
                     self.db.save_task(&mut t, true)?;
                     for mut c in self.db.children(&t.id)? {

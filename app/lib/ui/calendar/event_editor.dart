@@ -171,7 +171,7 @@ class _EventEditorState extends State<EventEditor> {
     final cals = widget.store.writableEventCalendars;
     final cal = widget.store.calendar(e.calendarId);
     final readonly = cal?.readonly ?? false;
-    Widget label(String s) => SizedBox(width: 92, child: Text(s, style: TextStyle(color: t.sec)));
+    Widget label(String s) => SizedBox(width: 96, child: Text(s, style: TextStyle(color: t.sec)));
     return Dialog(
       child: SizedBox(
         width: 520,
@@ -205,7 +205,7 @@ class _EventEditorState extends State<EventEditor> {
             ]),
             const SizedBox(height: 6),
             Row(children: [
-              label('Empieza'),
+              label('Fecha inicio'),
               DateField(
                 value: start,
                 onChanged: (d) => setState(() {
@@ -228,7 +228,7 @@ class _EventEditorState extends State<EventEditor> {
             ]),
             const SizedBox(height: 8),
             Row(children: [
-              label('Termina'),
+              label('Fecha fin'),
               DateField(value: end, onChanged: (d) => setState(() => end = d)),
               if (!e.allDay) ...[const SizedBox(width: 8), TimeField(value: end, onChanged: (d) => setState(() => end = d))],
             ]),

@@ -111,6 +111,7 @@ pub fn occurrences(e: &Event, color: &str, from: DateTime<Utc>, to: DateTime<Utc
                 end: fmt(&ve),
                 original_start: fmt(&s),
                 recurring,
+                attachments: 0,
             }
         })
         .collect()

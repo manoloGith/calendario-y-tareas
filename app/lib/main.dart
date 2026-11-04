@@ -32,12 +32,13 @@ Future<void> main(List<String> args) async {
   }
   // Instancia única: si ya hay una ventana principal, se le pide que se muestre (o que abra el día pedido) y se sale.
   final newEventDay = DateTime.tryParse(_arg(args, 'new-event') ?? '');
+  final newTask = args.contains('--new-task');
   if (!acquireInstanceLock('app')) {
     try {
       Core.call('sys.allowForeground');
     } catch (_) {}
     requestFile().writeAsStringSync(jsonEncode({
-      'action': newEventDay != null ? 'newEvent' : 'show',
+      'action': newEventDay != null ? 'newEvent' : (newTask ? 'newTask' : 'show'),
       if (newEventDay != null) 'date': fmtCoreDate(newEventDay),
       'at': DateTime.now().toIso8601String(),
     }));
@@ -63,6 +64,7 @@ Future<void> main(List<String> args) async {
   final store = AppStore(Settings.load());
   // Doble clic en un día de un widget con la app cerrada: se abre en ese día con el formulario de evento.
   if (newEventDay != null) store.requestNewEvent(newEventDay);
+  if (newTask) store.requestTask();
   appTray = AppTray(store);
   try {
     await appTray!.init();

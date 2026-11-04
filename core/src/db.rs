@@ -61,6 +61,9 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has("accounts", "alt_urls")? {
         conn.execute_batch("ALTER TABLE accounts ADD COLUMN alt_urls TEXT NOT NULL DEFAULT '[]'")?;
     }
+    if !has("tasks", "start")? {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN start TEXT")?;
+    }
     if !has("accounts", "active_url")? {
         conn.execute_batch("ALTER TABLE accounts ADD COLUMN active_url TEXT")?;
     }
@@ -429,7 +432,7 @@ impl Db {
     // ---------------------------------------------------------------- tareas
 
     const TASK_COLS: &'static str = "id,list_id,parent_id,title,notes,due,tzid,priority,flagged,tags,rrule,completed,
-        completed_at,section,position,alarm,created,updated";
+        completed_at,section,position,alarm,created,updated,start";
 
     fn row_task(r: &Row) -> rusqlite::Result<Task> {
         let tags: String = r.get(9)?;
@@ -452,6 +455,7 @@ impl Db {
             alarm: r.get(15)?,
             created: r.get(16)?,
             updated: r.get(17)?,
+            start: r.get(18)?,
         })
     }
 
@@ -500,6 +504,19 @@ impl Db {
                 t.due = Some(if d.contains('T') { time::fmt_local(&p) } else { time::fmt_date(&p) });
             }
         }
+        if let Some(d) = &t.start {
+            if d.trim().is_empty() {
+                t.start = None;
+            } else {
+                let p = time::parse_local(d).ok_or_else(|| Error::Invalid(format!("fecha de inicio no válida: {d}")))?;
+                t.start = Some(if d.contains('T') { time::fmt_local(&p) } else { time::fmt_date(&p) });
+            }
+        }
+        if let (Some(s), Some(d)) = (&t.start, &t.due) {
+            if time::parse_local(s) > time::parse_local(d) {
+                return Err(Error::Invalid("la fecha de inicio es posterior a la de fin".into()));
+            }
+        }
         if let Some(p) = &t.parent_id {
             if p.is_empty() || p == &t.id {
                 t.parent_id = None;
@@ -519,15 +536,15 @@ impl Db {
         let mark_dirty = dirty && source == SOURCE_CALDAV;
         self.conn.execute(
             "INSERT INTO tasks(id,list_id,parent_id,title,notes,due,tzid,priority,flagged,tags,rrule,completed,completed_at,
-                               section,position,alarm,created,updated,deleted,dirty)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,0,?19)
+                               section,position,alarm,created,updated,deleted,dirty,start)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,0,?19,?20)
              ON CONFLICT(id) DO UPDATE SET list_id=?2,parent_id=?3,title=?4,notes=?5,due=?6,tzid=?7,priority=?8,flagged=?9,
                tags=?10,rrule=?11,completed=?12,completed_at=?13,section=?14,position=?15,alarm=?16,updated=?18,deleted=0,
-               dirty=MAX(dirty, ?19)",
+               dirty=MAX(dirty, ?19),start=?20",
             params![
                 t.id, t.list_id, t.parent_id, t.title, t.notes, t.due, t.tzid, t.priority, t.flagged as i64,
                 serde_json::to_string(&t.tags)?, t.rrule.as_ref().filter(|r| !r.is_empty()), t.completed as i64,
-                t.completed_at, t.section, t.position, t.alarm, t.created, t.updated, mark_dirty as i64
+                t.completed_at, t.section, t.position, t.alarm, t.created, t.updated, mark_dirty as i64, t.start
             ],
         )?;
         self.log("task", &t.id, "upsert")?;

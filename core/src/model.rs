@@ -111,7 +111,10 @@ pub struct Task {
     pub title: String,
     #[serde(default)]
     pub notes: String,
-    /// "2026-11-03" o "2026-11-03T10:00:00" (hora local en `tzid`).
+    /// Fecha de inicio (opcional): "2026-11-03" o "2026-11-03T10:00:00" (hora local en `tzid`).
+    #[serde(default)]
+    pub start: Option<String>,
+    /// Fecha de fin / vencimiento: mismo formato.
     #[serde(default)]
     pub due: Option<String>,
     #[serde(default)]
@@ -165,6 +168,9 @@ pub struct Occurrence {
     /// Inicio original de la ocurrencia en la zona del evento (para excluir o separar).
     pub original_start: String,
     pub recurring: bool,
+    /// Número de adjuntos del evento (documentos, enlaces, carpetas).
+    #[serde(default)]
+    pub attachments: i64,
 }
 
 fn default_color() -> String {

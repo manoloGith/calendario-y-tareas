@@ -152,9 +152,20 @@ class AppStore extends ChangeNotifier {
       if (j['action'] == 'newEvent') {
         final day = DateTime.tryParse(j['date'] as String? ?? '');
         if (day != null) requestNewEvent(day);
+      } else if (j['action'] == 'newTask') {
+        requestTask();
       }
       onBringToFront?.call();
     } catch (_) {}
+  }
+
+  /// Tarea nueva (widget de tareas o bandeja): se crea en «Hoy» y se abre su detalle.
+  void requestTask() {
+    taskScope = const TaskScope.smart('today');
+    selectedTaskId = null;
+    mode = AppMode.tasks;
+    requestNewTask = true;
+    notifyListeners();
   }
 
   void requestNewEvent(DateTime day) {

@@ -51,6 +51,9 @@ static RE_PRIO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)(!{1,3})
 static RE_REPEAT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:cada|todos los|todas las)\s+(?:(\d+)\s+)?(dia laborable|dias laborables|dias|dia|semanas|semana|meses|mes|anos|ano|lunes|martes|miercoles|jueves|viernes|sabados|sabado|domingos|domingo)\b").unwrap()
 });
+static RE_ADVERB: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(diariamente|semanalmente|quincenalmente|mensualmente|trimestralmente|semestralmente|anualmente|cada trimestre|cada semestre|cada quincena)\b").unwrap()
+});
 static RE_WORKDAYS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:entre semana|de lunes a viernes)\b").unwrap());
 static RE_RELDAY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(pasado manana|manana|hoy)\b").unwrap());
 static RE_IN: LazyLock<Regex> = LazyLock::new(|| {
@@ -143,7 +146,20 @@ pub fn parse(input: &str, now: NaiveDateTime) -> Quick {
         q.duration_min = if g[1].as_deref().unwrap_or("h").starts_with('h') { n * 60 } else { n };
     }
     // Recurrencias.
-    if take(&RE_WORKDAYS, &mut orig, &mut norm).is_some() {
+    if let Some(g) = take(&RE_ADVERB, &mut orig, &mut norm) {
+        q.rrule = Some(
+            match g[0].as_deref().unwrap_or("") {
+                "diariamente" => "FREQ=DAILY",
+                "semanalmente" => "FREQ=WEEKLY",
+                "quincenalmente" | "cada quincena" => "FREQ=WEEKLY;INTERVAL=2",
+                "mensualmente" => "FREQ=MONTHLY",
+                "trimestralmente" | "cada trimestre" => "FREQ=MONTHLY;INTERVAL=3",
+                "semestralmente" | "cada semestre" => "FREQ=MONTHLY;INTERVAL=6",
+                _ => "FREQ=YEARLY",
+            }
+            .into(),
+        );
+    } else if take(&RE_WORKDAYS, &mut orig, &mut norm).is_some() {
         q.rrule = Some("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR".into());
     } else if let Some(g) = take(&RE_REPEAT, &mut orig, &mut norm) {
         let n: i64 = g[0].as_deref().map(|s| s.parse().unwrap_or(1)).unwrap_or(1);
@@ -326,6 +342,16 @@ mod tests {
         assert_eq!(q.rrule.as_deref(), Some("FREQ=WEEKLY;BYDAY=WE"));
         assert_eq!(q.date.as_deref(), Some("2026-11-04T19:00:00"));
         assert_eq!(q.title, "Yoga");
+    }
+
+    #[test]
+    fn quarterly_and_half_yearly() {
+        let q = parse("Pagar IVA trimestralmente #impuestos", now());
+        assert_eq!(q.title, "Pagar IVA");
+        assert_eq!(q.rrule.as_deref(), Some("FREQ=MONTHLY;INTERVAL=3"));
+        let q = parse("Revisión del coche cada semestre", now());
+        assert_eq!(q.title, "Revisión del coche");
+        assert_eq!(q.rrule.as_deref(), Some("FREQ=MONTHLY;INTERVAL=6"));
     }
 
     #[test]

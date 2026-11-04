@@ -13,6 +13,7 @@ import '../core/dates.dart';
 import '../core/models.dart';
 import '../core/settings.dart';
 import '../core/store.dart';
+import '../ui/attachments.dart';
 import '../ui/common.dart';
 import '../ui/theme.dart';
 
@@ -218,7 +219,7 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
     final mode = switch (widget.store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system };
     // El MaterialApp no se reconstruye con cada refresco de datos: solo el contenido del widget.
     final font = widget.store.settings.widgetFont;
-    final scale = widget.store.settings.widgetFontScale.clamp(0.7, 1.6);
+    final scale = (widget.store.settings.widgetFontScales[widget.kind] ?? 1.0).clamp(0.7, 1.6);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: _theme(false, font),
@@ -236,6 +237,8 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
           resizeEdgeSize: 6,
           child: _Scaled(
             base: widgetSizes[widget.kind] ?? const Size(320, 320),
+            // Las listas (eventos, tareas) escalan solo con el ancho: al bajar la altura se hace scroll, sin encoger la letra.
+            widthOnly: widget.kind != 'calendar',
             child: _Glass(
           child: ListenableBuilder(
             listenable: widget.store,
@@ -255,14 +258,18 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
   }
 }
 
-/// Escala el contenido de forma uniforme según el tamaño de la ventana (diseñado para `base`).
+/// Escala el contenido según el tamaño de la ventana (diseñado para `base`).
+/// `widthOnly`: la escala depende solo del ancho; la altura sobrante o que falta la absorbe el scroll.
 class _Scaled extends StatelessWidget {
-  const _Scaled({required this.base, required this.child});
+  const _Scaled({required this.base, required this.child, this.widthOnly = false});
   final Size base;
   final Widget child;
+  final bool widthOnly;
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
-        final s = (c.maxWidth / base.width < c.maxHeight / base.height ? c.maxWidth / base.width : c.maxHeight / base.height).clamp(0.5, 3.0);
+        final sw = c.maxWidth / base.width;
+        final sh = c.maxHeight / base.height;
+        final s = (widthOnly ? sw : (sw < sh ? sw : sh)).clamp(0.5, 3.0);
         return FittedBox(
           fit: BoxFit.fill,
           child: SizedBox(width: c.maxWidth / s, height: c.maxHeight / s, child: child),
@@ -322,51 +329,149 @@ class _GripPainter extends CustomPainter {
   bool shouldRepaint(_GripPainter old) => old.color != color;
 }
 
-/// Doble clic en un día: abre la app en ese día con el formulario de nuevo evento.
-Future<void> openAppOn(DateTime day) async {
+/// Pide a la ventana principal una acción (si no está abierta, la abre con el argumento equivalente).
+Future<void> _askApp(Map<String, dynamic> request, List<String> args) async {
   try {
     Core.call('sys.allowForeground');
   } catch (_) {}
   if (appAlive()) {
-    requestFile().writeAsStringSync(jsonEncode({'action': 'newEvent', 'date': fmtCoreDate(day), 'at': DateTime.now().toIso8601String()}));
+    requestFile().writeAsStringSync(jsonEncode({...request, 'at': DateTime.now().toIso8601String()}));
   } else {
-    await Process.start(Platform.resolvedExecutable, ['--new-event=${fmtCoreDate(day)}'], mode: ProcessStartMode.detached);
+    await Process.start(Platform.resolvedExecutable, args, mode: ProcessStartMode.detached);
   }
 }
 
-/// Cabecera arrastrable con menú (abrir la app, cerrar el widget).
+/// Doble clic en un día o «+» de eventos: abre la app con el formulario de nuevo evento ese día.
+Future<void> openAppOn(DateTime day) =>
+    _askApp({'action': 'newEvent', 'date': fmtCoreDate(day)}, ['--new-event=${fmtCoreDate(day)}']);
+
+/// «+» de tareas: abre la app con una tarea nueva lista para escribir.
+Future<void> openAppNewTask() => _askApp({'action': 'newTask'}, ['--new-task']);
+
+/// Cabecera arrastrable: título (crece con la letra en lugar de recortarse), botones opcionales y menú.
 class _Header extends StatelessWidget {
-  const _Header({required this.store, required this.child, required this.kind});
-  final AppStore store;
-  final Widget child;
+  const _Header({required this.kind, required this.child, this.onAdd, this.addTooltip, this.actions = const []});
   final String kind;
+  final Widget child;
+  final VoidCallback? onAdd;
+  final String? addTooltip;
+  final List<Widget> actions;
   @override
-  Widget build(BuildContext context) => Row(children: [
-        Expanded(child: DragToMoveArea(child: SizedBox(height: 28, child: Align(alignment: Alignment.centerLeft, child: child)))),
-        PopupMenuButton<String>(
-          tooltip: 'Opciones del widget',
-          iconSize: 16,
-          padding: EdgeInsets.zero,
-          icon: Icon(Icons.push_pin_outlined, color: context.tk.sec),
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'open', child: Text('Abrir Calendario y Tareas')),
-            PopupMenuItem(value: 'close', child: Text('Quitar del escritorio')),
-          ],
-          onSelected: (v) async {
-            if (v == 'open') {
-              try {
-                Core.call('sys.allowForeground');
-              } catch (_) {}
-              await Process.start(Platform.resolvedExecutable, const [], mode: ProcessStartMode.detached);
-            } else {
-              final s = Settings.load();
-              s.widgets[kind]!.enabled = false;
-              s.save();
-              exit(0);
-            }
-          },
+  Widget build(BuildContext context) {
+    final t = context.tk;
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      Expanded(
+        child: DragToMoveArea(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 30),
+            child: Align(alignment: Alignment.centerLeft, child: child),
+          ),
         ),
-      ]);
+      ),
+      ...actions,
+      if (onAdd != null)
+        Tooltip(
+          message: addTooltip ?? 'Añadir',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onAdd,
+            child: Container(
+              width: 26,
+              height: 26,
+              margin: const EdgeInsets.only(left: 2),
+              decoration: BoxDecoration(color: t.accent, shape: BoxShape.circle),
+              child: const Icon(Icons.add_rounded, size: 18, color: Colors.white),
+            ),
+          ),
+        ),
+      PopupMenuButton<String>(
+        tooltip: 'Opciones del widget',
+        iconSize: 16,
+        padding: EdgeInsets.zero,
+        icon: Icon(Icons.push_pin_outlined, color: t.sec),
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'open', child: Text('Abrir Calendario y Tareas')),
+          PopupMenuItem(value: 'close', child: Text('Quitar del escritorio')),
+        ],
+        onSelected: (v) async {
+          if (v == 'open') {
+            await _askApp({'action': 'show'}, const []);
+          } else {
+            final s = Settings.load();
+            s.widgets[kind]!.enabled = false;
+            s.save();
+            exit(0);
+          }
+        },
+      ),
+    ]);
+  }
+}
+
+/// Clip para abrir los adjuntos de un evento o tarea (uno: se abre directamente; varios: menú).
+class _Clip extends StatelessWidget {
+  const _Clip({required this.ownerId, required this.count});
+  final String ownerId;
+  final int count;
+
+  Future<void> _open(BuildContext context, Attachment a) async {
+    try {
+      final target = (await Core.callAsync('attachments.open', {'id': a.id})) as String;
+      await openExternal(target);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  List<Attachment> _list() =>
+      (Core.call('attachments.list', {'ownerId': ownerId}) as List).map((a) => Attachment.fromJson(a as Map<String, dynamic>)).toList();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tk;
+    final icon = Icon(Icons.attach_file_rounded, size: 16, color: t.sec);
+    if (count == 1) {
+      return IconButton(
+        tooltip: 'Abrir adjunto',
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+        onPressed: () {
+          final l = _list();
+          if (l.isNotEmpty) _open(context, l.first);
+        },
+        icon: icon,
+      );
+    }
+    return PopupMenuButton<Attachment>(
+      tooltip: '$count adjuntos',
+      padding: EdgeInsets.zero,
+      icon: Badge(label: Text('$count'), backgroundColor: t.accent, child: icon),
+      itemBuilder: (_) => [
+        for (final a in _list())
+          PopupMenuItem(
+            value: a,
+            child: Row(children: [
+              Icon(switch (a.kind) { 'file' => Icons.description_outlined, 'folder' => Icons.folder_outlined, _ => Icons.link_rounded }, size: 16),
+              const SizedBox(width: 8),
+              Flexible(child: Text(a.name, overflow: TextOverflow.ellipsis)),
+            ]),
+          ),
+      ],
+      onSelected: (a) => _open(context, a),
+    );
+  }
+}
+
+/// Etiqueta del periodo de la lista.
+String _rangeLabel(int days) => switch (days) { 1 => 'Hoy', 30 => 'Próximo mes', _ => 'Próximos $days días' };
+
+/// Cabecera de día en las listas: «HOY», «MAÑANA», «JUE 6 NOV».
+String _dayHeader(DateTime d) {
+  final diff = dateOnly(d).difference(dateOnly(DateTime.now())).inDays;
+  if (diff == 0) return 'HOY';
+  if (diff == 1) return 'MAÑANA';
+  return shortDate(d).toUpperCase();
 }
 
 class _LockedWidget extends StatefulWidget {
@@ -417,10 +522,15 @@ Map<String, Color> _dots(AppStore store, DateTime month) {
   return dots;
 }
 
-Widget _monthTitle(DateTime m, BuildContext context) => Text.rich(TextSpan(children: [
-      TextSpan(text: monthNames[m.month - 1].toUpperCase(), style: const TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, letterSpacing: .5)),
-      TextSpan(text: '  ${m.year}', style: TextStyle(color: context.tk.sec)),
-    ]), style: const TextStyle(fontSize: 13));
+Widget _monthTitle(DateTime m, BuildContext context) => Text.rich(
+      TextSpan(children: [
+        TextSpan(text: monthNames[m.month - 1].toUpperCase(), style: const TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, letterSpacing: .5)),
+        TextSpan(text: '  ${m.year}', style: TextStyle(color: context.tk.sec)),
+      ]),
+      style: const TextStyle(fontSize: 13),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
 
 // ------------------------------------------------------------------ solo calendario
 
@@ -436,20 +546,27 @@ class _CalendarWidgetState extends State<_CalendarWidget> {
   @override
   Widget build(BuildContext context) => Column(children: [
         _Header(
-          store: widget.store,
           kind: 'calendar',
-          child: Row(children: [
-            _monthTitle(month, context),
-            const Spacer(),
-            IconButton(tooltip: 'Mes anterior', iconSize: 16, onPressed: () => setState(() => month = addMonths(month, -1)), icon: const Icon(Icons.chevron_left_rounded)),
-            IconButton(tooltip: 'Mes siguiente', iconSize: 16, onPressed: () => setState(() => month = addMonths(month, 1)), icon: const Icon(Icons.chevron_right_rounded)),
-          ]),
+          actions: [
+            IconButton(tooltip: 'Mes anterior', iconSize: 16, visualDensity: VisualDensity.compact, onPressed: () => setState(() => month = addMonths(month, -1)), icon: const Icon(Icons.chevron_left_rounded)),
+            IconButton(tooltip: 'Mes siguiente', iconSize: 16, visualDensity: VisualDensity.compact, onPressed: () => setState(() => month = addMonths(month, 1)), icon: const Icon(Icons.chevron_right_rounded)),
+          ],
+          child: _monthTitle(month, context),
         ),
         const SizedBox(height: 4),
-        Tooltip(
-          message: 'Doble clic en un día para añadir un evento',
-          waitDuration: const Duration(seconds: 1),
-          child: MiniMonth(month: month, showHeader: false, cell: 40, dots: _dots(widget.store, month), onPick: (_) {}, onDoubleTap: openAppOn),
+        Expanded(
+          child: LayoutBuilder(builder: (context, c) {
+            // Celdas que caben en el espacio disponible (la cabecera puede crecer con la letra).
+            final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.6) ? c.maxWidth / 7 : c.maxHeight / 7.6).clamp(18.0, 80.0);
+            return Align(
+              alignment: Alignment.topCenter,
+              child: Tooltip(
+                message: 'Doble clic en un día para añadir un evento',
+                waitDuration: const Duration(seconds: 1),
+                child: MiniMonth(month: month, showHeader: false, cell: cell, dots: _dots(widget.store, month), onPick: (_) {}, onDoubleTap: openAppOn),
+              ),
+            );
+          }),
         ),
       ]);
 }
@@ -466,91 +583,79 @@ class _AgendaWidget extends StatefulWidget {
 class _AgendaWidgetState extends State<_AgendaWidget> {
   DateTime month = startOfMonth(DateTime.now());
   DateTime day = dateOnly(DateTime.now());
-  final quick = TextEditingController();
-
-  @override
-  void dispose() {
-    quick.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
     final store = widget.store;
-    final today = sameDay(day, DateTime.now());
-    final first = store.occurrences(day, addDays(day, 1));
-    final second = today ? store.occurrences(addDays(day, 1), addDays(day, 2)) : <Occurrence>[];
+    final days = store.settings.widgetRanges['agenda'] ?? 3;
+    final occ = store.occurrences(day, addDays(day, days));
+    // Agrupar por día (un evento de varios días aparece el día en que empieza o el primero del periodo).
+    final groups = <String, List<Occurrence>>{};
+    for (final o in occ) {
+      final d = o.start.isBefore(day) ? day : dateOnly(o.start);
+      groups.putIfAbsent(fmtCoreDate(d), () => []).add(o);
+    }
     Widget item(Occurrence o) {
       final c = o.colorValue;
       return Container(
         margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
         decoration: BoxDecoration(color: t.tint(c), borderRadius: BorderRadius.circular(10)),
         child: Row(children: [
           Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
           const SizedBox(width: 10),
-          Expanded(child: Text(o.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(child: Text(o.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
           Text(o.allDay ? 'todo el día' : fmtTime(o.start), style: TextStyle(fontSize: 12, color: t.sec)),
+          if (o.attachments > 0) _Clip(ownerId: o.eventId, count: o.attachments) else const SizedBox(width: 6),
         ]),
       );
     }
 
+    final title = days == 1 && sameDay(day, DateTime.now()) ? 'Hoy, ${weekdayLong[day.weekday - 1]} ${day.day}' : (sameDay(day, DateTime.now()) ? _rangeLabel(days) : '${capitalize(shortDate(day))} · ${_rangeLabel(days).toLowerCase()}');
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SizedBox(
         width: 7 * 33,
-        child: Column(children: [
-          _Header(store: store, kind: 'agenda', child: _monthTitle(month, context)),
-          MiniMonth(
-            month: month,
-            showHeader: false,
-            cell: 33,
-            selected: day,
-            onDoubleTap: openAppOn,
-            onPick: (d) => setState(() {
-              day = d;
-              if (d.month != month.month) month = startOfMonth(d);
-            }),
-          ),
-        ]),
+        child: SingleChildScrollView(
+          child: Column(children: [
+            DragToMoveArea(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 30), child: Align(alignment: Alignment.centerLeft, child: _monthTitle(month, context)))),
+            MiniMonth(
+              month: month,
+              showHeader: false,
+              cell: 33,
+              selected: day,
+              onDoubleTap: openAppOn,
+              onPick: (d) => setState(() {
+                day = d;
+                if (d.month != month.month) month = startOfMonth(d);
+              }),
+            ),
+          ]),
+        ),
       ),
-      Container(width: 1, margin: const EdgeInsets.symmetric(horizontal: 16), color: t.border),
+      Container(width: 1, margin: const EdgeInsets.symmetric(horizontal: 14), color: t.border),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          DragToMoveArea(
-            child: SizedBox(
-              height: 28,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(today ? 'Hoy, ${weekdayLong[day.weekday - 1]} ${day.day}' : capitalize(longDate(day)), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
-            ),
+          _Header(
+            kind: 'agenda',
+            onAdd: () => openAppOn(day),
+            addTooltip: 'Nuevo evento',
+            child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 6),
           Expanded(
-            child: ListView(children: [
-              if (first.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('Sin eventos', style: TextStyle(color: t.faint))),
-              ...first.map(item),
-              if (second.isNotEmpty) ...[
-                Padding(padding: const EdgeInsets.only(top: 4, bottom: 6), child: Text('MAÑANA', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: t.sec))),
-                ...second.map(item),
-              ],
-            ]),
-          ),
-          TextField(
-            controller: quick,
-            style: const TextStyle(fontSize: 12.5),
-            decoration: const InputDecoration(hintText: 'Añadir evento… «Cena con Ana el viernes a las 21h»', prefixIcon: Icon(Icons.add_rounded, size: 16)),
-            onSubmitted: (v) {
-              final cal = store.defaultCalendarId;
-              if (v.trim().isEmpty || cal == null) return;
-              try {
-                store.mutate('events.quickAdd', {'text': v.trim(), 'calendarId': cal});
-                quick.clear();
-              } catch (e) {
-                showError(context, e);
-              }
-            },
+            child: occ.isEmpty
+                ? Padding(padding: const EdgeInsets.only(top: 8), child: Text('Sin eventos', style: TextStyle(color: t.faint)))
+                : ListView(children: [
+                    for (final g in groups.entries) ...[
+                      if (days > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 6),
+                          child: Text(_dayHeader(DateTime.parse(g.key)), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: t.sec)),
+                        ),
+                      ...g.value.map(item),
+                    ],
+                  ]),
           ),
         ]),
       ),
@@ -560,43 +665,35 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
 
 // ------------------------------------------------------------------ tareas
 
-class _TasksWidget extends StatefulWidget {
+class _TasksWidget extends StatelessWidget {
   const _TasksWidget({required this.store});
   final AppStore store;
-  @override
-  State<_TasksWidget> createState() => _TasksWidgetState();
-}
-
-class _TasksWidgetState extends State<_TasksWidget> {
-  final quick = TextEditingController();
-  @override
-  void dispose() {
-    quick.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
-    final store = widget.store;
-    final nodes = store.tasks(const TaskScope.smart('today'));
+    final days = store.settings.widgetRanges['tasks'] ?? 1;
+    final until = fmtCoreDate(addDays(dateOnly(DateTime.now()), days));
+    final nodes = days == 1
+        ? store.tasks(const TaskScope.smart('today'))
+        : (Core.call('tasks.list', {'filter': {'smart': 'upcoming', 'until': until}}) as List).map((o) => TaskNode.fromJson(o as Map<String, dynamic>)).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(
-        store: store,
         kind: 'tasks',
+        onAdd: openAppNewTask,
+        addTooltip: 'Nueva tarea',
         child: Row(children: [
           Container(width: 24, height: 24, decoration: const BoxDecoration(color: Color(0xFF007AFF), shape: BoxShape.circle), child: const Icon(Icons.check_rounded, size: 14, color: Colors.white)),
           const SizedBox(width: 8),
-          const Text('Tareas · Hoy', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-          const Spacer(),
+          Flexible(child: Text('Tareas · ${_rangeLabel(days)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+          const SizedBox(width: 6),
           Text('${nodes.length}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF007AFF))),
-          const SizedBox(width: 4),
         ]),
       ),
       const SizedBox(height: 6),
       Expanded(
         child: nodes.isEmpty
-            ? Center(child: Text('Nada pendiente para hoy', style: TextStyle(color: t.faint)))
+            ? Center(child: Text(days == 1 ? 'Nada pendiente para hoy' : 'Nada pendiente', style: TextStyle(color: t.faint)))
             : ListView(children: [
                 for (final n in nodes)
                   Container(
@@ -610,7 +707,7 @@ class _TasksWidgetState extends State<_TasksWidget> {
                           Text(n.task.title),
                           Text(
                             [
-                              if (n.task.due != null) relativeDue(n.task.due!),
+                              if (n.task.due != null || n.task.start != null) taskDates(n.task.start, n.task.due),
                               n.listName,
                               if (n.task.priority > 0) '!' * n.task.priority,
                             ].join(' · '),
@@ -618,30 +715,10 @@ class _TasksWidgetState extends State<_TasksWidget> {
                           ),
                         ]),
                       ),
+                      if (n.attachments > 0) _Clip(ownerId: n.task.id, count: n.attachments),
                     ]),
                   ),
               ]),
-      ),
-      const SizedBox(height: 6),
-      TextField(
-        controller: quick,
-        style: const TextStyle(fontSize: 12.5),
-        decoration: const InputDecoration(hintText: 'Nueva tarea', prefixIcon: Icon(Icons.add_rounded, size: 16)),
-        onSubmitted: (v) {
-          final list = store.defaultListId;
-          if (v.trim().isEmpty || list == null) return;
-          try {
-            // Sin fecha explícita, la tarea se crea para hoy (es el widget «Hoy»).
-            final r = store.mutate('tasks.quickAdd', {'text': v.trim(), 'listId': list}) as Map<String, dynamic>;
-            if (r['due'] == null) {
-              final task = TaskData.fromJson(r)..due = fmtCoreDate(DateTime.now());
-              store.mutate('tasks.save', {'task': task.toJson()});
-            }
-            quick.clear();
-          } catch (e) {
-            showError(context, e);
-          }
-        },
       ),
     ]);
   }

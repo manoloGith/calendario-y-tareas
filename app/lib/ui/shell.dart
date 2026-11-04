@@ -34,7 +34,18 @@ class _ShellState extends State<Shell> {
     if (store.mode == AppMode.tasks) {
       final list = store.defaultListId;
       if (list == null) return showError(context, 'Crea primero una lista de tareas.');
-      final r = store.mutate('tasks.save', {'task': TaskData(listId: list, title: 'Nueva tarea').toJson()}) as Map<String, dynamic>;
+      // Que la tarea nueva aparezca en la lista que se está viendo.
+      final scope = store.taskScope;
+      final dated = scope.smart == 'today' || scope.smart == 'scheduled';
+      final r = store.mutate('tasks.save', {
+        'task': TaskData(
+          listId: scope.listId ?? list,
+          title: 'Nueva tarea',
+          due: dated ? fmtCoreDate(DateTime.now()) : null,
+          flagged: scope.smart == 'flagged',
+          tags: scope.tag != null ? [scope.tag!] : null,
+        ).toJson(),
+      }) as Map<String, dynamic>;
       store.selectTask(r['id'] as String);
     } else {
       final a = store.anchor;

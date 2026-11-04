@@ -63,6 +63,8 @@ String describeRule(String? rule) {
   const units = {'DAILY': ['día', 'días'], 'WEEKLY': ['semana', 'semanas'], 'MONTHLY': ['mes', 'meses'], 'YEARLY': ['año', 'años']};
   final u = units[freq];
   if (u == null) return 'Personalizada';
+  if (freq == 'MONTHLY' && interval == 3 && !parts.containsKey('UNTIL')) return 'Cada trimestre';
+  if (freq == 'MONTHLY' && interval == 6 && !parts.containsKey('UNTIL')) return 'Cada semestre';
   var s = interval == 1 ? 'Cada ${u[0]}' : 'Cada $interval ${u[1]}';
   if (freq == 'WEEKLY' && byday != null) {
     const codes = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
@@ -81,6 +83,8 @@ const repeatOptions = <String?, String>{
   'FREQ=WEEKLY': 'Cada semana',
   'FREQ=WEEKLY;INTERVAL=2': 'Cada 2 semanas',
   'FREQ=MONTHLY': 'Cada mes',
+  'FREQ=MONTHLY;INTERVAL=3': 'Cada trimestre',
+  'FREQ=MONTHLY;INTERVAL=6': 'Cada semestre',
   'FREQ=YEARLY': 'Cada año',
 };
 
@@ -94,3 +98,10 @@ const alarmOptions = <int?, String>{
   60: '1 hora antes',
   1440: '1 día antes',
 };
+
+/// «3 nov → 7 nov» para tareas con inicio y fin; si solo hay una de las dos, su fecha relativa.
+String taskDates(String? start, String? due) {
+  if (start == null) return due == null ? '' : relativeDue(due);
+  if (due == null) return 'Desde ${relativeDue(start)}';
+  return '${relativeDue(start)} → ${relativeDue(due)}';
+}

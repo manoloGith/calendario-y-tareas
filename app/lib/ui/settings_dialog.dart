@@ -403,63 +403,78 @@ class _SettingsDialogState extends State<SettingsDialog> {
   Widget _widgets(BuildContext context) {
     const names = {'calendar': 'Solo calendario', 'agenda': 'Calendario y eventos', 'tasks': 'Tareas'};
     final s = store.settings;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _title('Widgets de escritorio',
-          'Ventanas ligeras ancladas al escritorio: siguen visibles con Win+D o «Mostrar escritorio». Arrástralos por la cabecera para moverlos.'),
-      for (final k in Settings.widgetKinds)
-        _row(
-          names[k]!,
-          Switch(
-            value: s.widgets[k]!.enabled,
-            onChanged: (v) async {
-              s.widgets[k]!.enabled = v;
-              s.save();
-              setState(() {});
-              if (v && !widgetAlive(k)) await store.launchWidget(k);
-            },
-          ),
-        ),
-      const SizedBox(height: 18),
-      _title('Texto de los widgets', 'Los cambios se aplican en unos segundos a los widgets abiertos.'),
-      _row('Fuente', _fontPicker(context)),
-      _row(
-        'Tamaño del texto',
-        Row(children: [
+    final t = context.tk;
+    Widget scaleSlider(String k) => Row(children: [
           Expanded(
             child: Slider(
-              value: s.widgetFontScale.clamp(0.7, 1.6),
+              value: s.widgetFontScales[k]!.clamp(0.7, 1.6),
               min: 0.7,
               max: 1.6,
               divisions: 18,
-              label: '${(s.widgetFontScale * 100).round()} %',
-              onChanged: (v) => setState(() => s.widgetFontScale = (v * 20).round() / 20),
+              label: '${(s.widgetFontScales[k]! * 100).round()} %',
+              onChanged: (v) => setState(() => s.widgetFontScales[k] = (v * 20).round() / 20),
               onChangeEnd: (_) => s.save(),
             ),
           ),
-          SizedBox(width: 48, child: Text('${(s.widgetFontScale * 100).round()} %', textAlign: TextAlign.right)),
-        ]),
-      ),
+          SizedBox(width: 48, child: Text('${(s.widgetFontScales[k]! * 100).round()} %', textAlign: TextAlign.right)),
+        ]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _title('Widgets de escritorio',
+          'Ventanas ligeras ancladas al escritorio: siguen visibles con Win+D o «Mostrar escritorio». Muévelos por la cabecera y cambia su tamaño desde los bordes. Los cambios se aplican en unos segundos.'),
+      for (final k in Settings.widgetKinds)
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+          decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(12)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(names[k]!, style: const TextStyle(fontWeight: FontWeight.w700))),
+              Switch(
+                value: s.widgets[k]!.enabled,
+                onChanged: (v) async {
+                  s.widgets[k]!.enabled = v;
+                  s.save();
+                  setState(() {});
+                  if (v && !widgetAlive(k)) await store.launchWidget(k);
+                },
+              ),
+            ]),
+            if (k != 'calendar')
+              _row(
+                'Mostrar',
+                DropdownButton<int>(
+                  value: widgetRangeOptions.containsKey(s.widgetRanges[k]) ? s.widgetRanges[k] : 1,
+                  items: [for (final e in widgetRangeOptions.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+                  onChanged: (v) {
+                    setState(() => s.widgetRanges[k] = v ?? 1);
+                    s.save();
+                  },
+                ),
+              ),
+            _row('Tamaño del texto', scaleSlider(k)),
+          ]),
+        ),
+      const SizedBox(height: 8),
+      _title('Fuente de los widgets'),
+      _row('Fuente', _fontPicker(context)),
       Container(
         margin: const EdgeInsets.only(top: 6),
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: context.tk.sidebar, borderRadius: BorderRadius.circular(14)),
-        child: MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(s.widgetFontScale)),
-          child: DefaultTextStyle.merge(
-            style: TextStyle(fontFamily: s.widgetFont),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('NOVIEMBRE  2026', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, fontSize: 13)),
-              const SizedBox(height: 6),
-              const Text('Revisión de sprint', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              Text('10:00 · Trabajo', style: TextStyle(fontSize: 11, color: context.tk.sec)),
-            ]),
-          ),
+        decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(14)),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(fontFamily: s.widgetFont),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('NOVIEMBRE  2026', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, fontSize: 13)),
+            const SizedBox(height: 6),
+            const Text('Revisión de sprint', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            Text('10:00 · Trabajo', style: TextStyle(fontSize: 11, color: t.sec)),
+          ]),
         ),
       ),
       const SizedBox(height: 10),
       if (!store.remembered)
         Text('Consejo: activa «Recordar en este equipo» (Seguridad) para que los widgets se puedan abrir sin la app principal.',
-            style: TextStyle(color: context.tk.sec, fontSize: 12.5)),
+            style: TextStyle(color: t.sec, fontSize: 12.5)),
     ]);
   }
 }

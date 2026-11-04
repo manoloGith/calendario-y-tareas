@@ -301,7 +301,10 @@ pub fn read(input: &str, default_tz: &str) -> Parsed {
                 }
                 "VTODO" => {
                     let uid = c.text("UID");
-                    let due = c.get("DUE").or(c.get("DTSTART")).and_then(|p| parse_dt(p, default_tz));
+                    let due = c.get("DUE").and_then(|p| parse_dt(p, default_tz));
+                    let start = c.get("DTSTART").and_then(|p| parse_dt(p, default_tz));
+                    // Sin DUE, una tarea con DTSTART se trata como de un solo día.
+                    let (start, due) = if due.is_none() { (None, start) } else { (start, due) };
                     let status = c.text("STATUS").to_ascii_uppercase();
                     let completed = status == "COMPLETED" || c.get("COMPLETED").is_some();
                     let prio: i64 = c.text("PRIORITY").parse().unwrap_or(0);
@@ -340,6 +343,7 @@ pub fn read(input: &str, default_tz: &str) -> Parsed {
                         parent_id: parent,
                         title: c.text("SUMMARY"),
                         notes: c.text("DESCRIPTION"),
+                        start: start.as_ref().map(|(d, _, is_date)| if *is_date { time::fmt_date(d) } else { time::fmt_local(d) }),
                         due: due.as_ref().map(|(d, _, is_date)| if *is_date { time::fmt_date(d) } else { time::fmt_local(d) }),
                         tzid: due.map(|(_, t, _)| t).unwrap_or_else(|| default_tz.to_string()),
                         priority,
@@ -449,6 +453,9 @@ pub fn task_lines(t: &Task) -> Vec<String> {
     l.push(format!("SUMMARY:{}", escape(&t.title)));
     if !t.notes.is_empty() {
         l.push(format!("DESCRIPTION:{}", escape(&t.notes)));
+    }
+    if let Some(s) = &t.start {
+        l.push(dt_prop("DTSTART", s, &t.tzid, !s.contains('T')));
     }
     if let Some(d) = &t.due {
         l.push(dt_prop("DUE", d, &t.tzid, !d.contains('T')));

@@ -177,7 +177,8 @@ class Occurrence {
         start = DateTime.parse(j['start'] as String),
         end = DateTime.parse(j['end'] as String),
         originalStart = j['originalStart'] as String,
-        recurring = j['recurring'] as bool? ?? false;
+        recurring = j['recurring'] as bool? ?? false,
+        attachments = (j['attachments'] as num?)?.toInt() ?? 0;
 
   final String eventId;
   final String calendarId;
@@ -190,6 +191,7 @@ class Occurrence {
   final DateTime end;
   final String originalStart;
   final bool recurring;
+  final int attachments;
 
   Color get colorValue => parseHex(color);
 }
@@ -201,6 +203,7 @@ class TaskData {
     this.parentId,
     this.title = '',
     this.notes = '',
+    this.start,
     this.due,
     this.tzid = '',
     this.priority = 0,
@@ -220,6 +223,7 @@ class TaskData {
         parentId: j['parentId'] as String?,
         title: j['title'] as String? ?? '',
         notes: j['notes'] as String? ?? '',
+        start: j['start'] as String?,
         due: j['due'] as String?,
         tzid: j['tzid'] as String? ?? '',
         priority: (j['priority'] as num?)?.toInt() ?? 0,
@@ -238,6 +242,8 @@ class TaskData {
   String? parentId;
   String title;
   String notes;
+  /// Fecha de inicio (opcional) y de fin/vencimiento.
+  String? start;
   String? due;
   String tzid;
   int priority;
@@ -251,7 +257,9 @@ class TaskData {
   int? alarm;
 
   bool get hasTime => due != null && due!.contains('T');
+  bool get startHasTime => start != null && start!.contains('T');
   DateTime? get dueDate => due == null ? null : DateTime.tryParse(due!);
+  DateTime? get startDate => start == null ? null : DateTime.tryParse(start!);
   bool get recurring => rrule != null && rrule!.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
@@ -260,6 +268,7 @@ class TaskData {
         'parentId': parentId,
         'title': title,
         'notes': notes,
+        'start': start,
         'due': due,
         'tzid': tzid,
         'priority': priority,

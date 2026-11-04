@@ -70,7 +70,7 @@ Resultado:
 
 **Calendario.** Vistas Día, Semana, Mes y Año. En la semana: doble clic en un hueco para crear, clic en un evento para editarlo, arrástralo para moverlo (también a otro día) y arrastra su borde inferior para cambiar la duración. En los eventos recurrentes la app pregunta si el cambio es para «solo esta», «esta y las siguientes» o «todas». Las tareas con fecha aparecen en el calendario y se pueden completar desde ahí.
 
-**Tareas.** Listas inteligentes (Hoy, Programadas, Todas, Marcadas, Completadas), listas propias con secciones, subtareas, etiquetas, prioridades, avisos y tareas recurrentes: al completar una recurrente pasa a su siguiente fecha y reabre sus subtareas, como en Recordatorios.
+**Tareas.** Cada tarea tiene **fecha de inicio y fecha de fin** (las dos opcionales, con hora si se quiere); «Hoy» muestra las que vencen hoy o antes y las que ya han empezado. Listas inteligentes (Hoy, Programadas, Todas, Marcadas, Completadas), listas propias con secciones, subtareas, etiquetas, prioridades, avisos y tareas recurrentes (cada día, días laborables, semana, 2 semanas, mes, **trimestre**, **semestre**, año): al completar una recurrente pasa a su siguiente fecha y reabre sus subtareas, como en Recordatorios.
 
 **Captura rápida** en lenguaje natural, sin enviar nada a la red. Ejemplos:
 
@@ -79,6 +79,7 @@ Resultado:
 - «Daily cada día laborable a las 9:30»
 - «Dentista el 12 de noviembre a las 5 de la tarde»
 - «Revisar PR 142 en 2 días durante 30 min»
+- «Pagar IVA trimestralmente #impuestos», «Revisión del coche cada semestre»
 
 **Atajos** (Cmd en macOS, Ctrl en Windows y Linux):
 
@@ -102,7 +103,7 @@ Resultado:
 
 **Adjuntos.** Eventos y tareas admiten documentos, enlaces y carpetas (botón del clip en «Adjuntos»). Los documentos se copian dentro de la base de datos, cifrados (máximo 50 MB cada uno), así que viajan con tus datos y en las copias de seguridad aunque borres el original; al abrirlos se descifra una copia temporal (los cambios que hagas en ella no se guardan en el adjunto: usa «Guardar una copia…»). Los enlaces se abren en el navegador y las carpetas en el explorador (son referencias: si la carpeta se mueve, deja de encontrarse). Los adjuntos no se sincronizan por CalDAV.
 
-**Widgets.** En Ajustes › Widgets se eligen la **fuente** y el **tamaño del texto** (70–160 %), con vista previa. Ajustes › Widgets: «Solo calendario», «Calendario y eventos» y «Tareas». Se arrastran por la cabecera, se refrescan solos y permiten dar de alta eventos y tareas. **Doble clic en un día** de un widget abre la app en ese día con el formulario de nuevo evento (si la app estaba cerrada, la abre). **Tamaño:** al aparecer en un monitor nuevo se adaptan a su escala (DPI) y resolución; después puedes cambiarlo desde cualquier borde o con el asa de la esquina inferior derecha, y el contenido crece o encoge con él. La posición y el tamaño se guardan **para cada monitor y resolución**: si llevas la app en un USB a otro equipo, allí se usarán las medidas de ese monitor y al volver se recuperan las tuyas. Para que sigan visibles con Win+D o «Mostrar escritorio», se anclan al escritorio (Windows: propietario = ventana del escritorio; macOS: nivel de escritorio en todos los Spaces; Linux: siempre al fondo). El icono de chincheta permite abrir la app o quitar el widget.
+**Widgets.** Tres widgets: «Solo calendario», «Calendario y eventos» y «Tareas». En Ajustes › Widgets, para cada uno: activarlo, el **periodo que muestra su lista** (hoy, próximos 3, 7 o 15 días, o el próximo mes) y el **tamaño del texto** (70–160 %); la fuente es común a todos. El **«+»** junto al título abre en la app el formulario de nuevo evento (en el día seleccionado) o una tarea nueva; **doble clic en un día** también abre el formulario de evento. Si un evento o tarea tiene adjuntos, aparece un **clip** para abrirlos. **Tamaño de la ventana:** al aparecer en un monitor nuevo se adapta a su escala (DPI) y resolución; después se cambia desde cualquier borde o con el asa de la esquina inferior derecha. En las listas, el texto crece o encoge con el ancho y la altura solo cambia cuántos elementos se ven (con scroll). La posición y el tamaño se guardan **para cada monitor y resolución**.
 
 ## Arquitectura
 

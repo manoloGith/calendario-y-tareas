@@ -110,6 +110,14 @@ class Settings {
         vaultPath = _resolveVault(j['vaultPath'] as String?, j['customFolder'] as bool? ?? false),
         widgetFont = j['widgetFont'] as String?,
         widgetFontScale = ((j['widgetFontScale'] as num?) ?? 1.0).toDouble(),
+        widgetFontScales = {
+          for (final k in widgetKinds)
+            k: (((j['widgetFontScales'] as Map?)?[k] as num?) ?? (j['widgetFontScale'] as num?) ?? 1.0).toDouble(),
+        },
+        widgetRanges = {
+          'agenda': (((j['widgetRanges'] as Map?)?['agenda'] as num?) ?? 3).toInt(),
+          'tasks': (((j['widgetRanges'] as Map?)?['tasks'] as num?) ?? 1).toInt(),
+        },
         trayHintShown = j['trayHintShown'] as bool? ?? false,
         themeMode = j['themeMode'] as String? ?? 'system',
         defaultCalendarId = j['defaultCalendarId'] as String?,
@@ -129,6 +137,10 @@ class Settings {
   /// Fuente y tamaño del texto de los widgets (null = fuente del sistema).
   String? widgetFont;
   double widgetFontScale;
+  /// Tamaño del texto de cada widget (calendar, agenda, tasks).
+  final Map<String, double> widgetFontScales;
+  /// Días que muestra la lista de cada widget (1 = hoy, 3, 7, 15, 30 = un mes).
+  final Map<String, int> widgetRanges;
   bool trayHintShown;
   /// "system", "light" o "dark"
   String themeMode;
@@ -155,6 +167,8 @@ class Settings {
       'customFolder': customFolder,
       'widgetFont': widgetFont,
       'widgetFontScale': widgetFontScale,
+      'widgetFontScales': widgetFontScales,
+      'widgetRanges': widgetRanges,
       'trayHintShown': trayHintShown,
       'themeMode': themeMode,
       'defaultCalendarId': defaultCalendarId,
@@ -251,3 +265,5 @@ bool acquireInstanceLock(String name) {
 }
 
 bool get holdsInstanceLock => _lock != null;
+
+const widgetRangeOptions = {1: 'Hoy', 3: 'Próximos 3 días', 7: 'Próximos 7 días', 15: 'Próximos 15 días', 30: 'Próximo mes'};

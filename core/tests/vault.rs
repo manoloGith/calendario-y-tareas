@@ -235,3 +235,48 @@ fn attachments_documents_links_folders() {
     let list = v.tasks(&TaskFilter { list_id: Some(cal), ..Default::default() }).unwrap();
     assert!(list.is_empty());
 }
+
+#[test]
+fn task_start_and_end_dates() {
+    let d = tmp("start");
+    let v = Vault::create(&d.join("v.db"), "contraseña-larga").unwrap();
+    let cal = work_cal(&v);
+    let today = calendario_core::time::now_local("Europe/Madrid").date();
+    let fmt = |n: i64| (today + chrono::Duration::days(n)).format("%Y-%m-%d").to_string();
+    // En curso: empezó ayer y termina dentro de 5 días → aparece en «Hoy».
+    let t = v.save_task(Task { list_id: cal.clone(), title: "Informe anual".into(), start: Some(fmt(-1)), due: Some(fmt(5)), ..Default::default() }).unwrap();
+    // Empieza dentro de 10 días y termina dentro de 12 → solo en periodos largos.
+    v.save_task(Task { list_id: cal.clone(), title: "Mudanza".into(), start: Some(fmt(10)), due: Some(fmt(12)), ..Default::default() }).unwrap();
+    let today_list = v.tasks(&TaskFilter { smart: Some("today".into()), ..Default::default() }).unwrap();
+    assert_eq!(today_list.len(), 1);
+    assert_eq!(today_list[0].task.id, t.id);
+    let week = v.tasks(&TaskFilter { smart: Some("upcoming".into()), until: Some(fmt(7)), ..Default::default() }).unwrap();
+    assert_eq!(week.len(), 1);
+    let fortnight = v.tasks(&TaskFilter { smart: Some("upcoming".into()), until: Some(fmt(15)), ..Default::default() }).unwrap();
+    assert_eq!(fortnight.len(), 2);
+    // Inicio posterior al fin: error.
+    assert!(v.save_task(Task { list_id: cal.clone(), title: "x".into(), start: Some(fmt(3)), due: Some(fmt(1)), ..Default::default() }).is_err());
+    // Recurrente trimestral: al completarla, inicio y fin avanzan lo mismo.
+    let r = v
+        .save_task(Task {
+            list_id: cal.clone(),
+            title: "Pagar IVA".into(),
+            start: Some("2026-10-01".into()),
+            due: Some("2026-10-20".into()),
+            rrule: Some("FREQ=MONTHLY;INTERVAL=3".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let r2 = v.toggle_task(&r.id).unwrap();
+    assert!(!r2.completed);
+    assert_eq!(r2.due.as_deref(), Some("2027-01-20"));
+    assert_eq!(r2.start.as_deref(), Some("2027-01-01"));
+    // Viaja en .ics como DTSTART/DUE.
+    let out = d.join("t.ics");
+    v.export_ics(&cal, &out).unwrap();
+    let txt = std::fs::read_to_string(&out).unwrap();
+    assert!(txt.contains("DTSTART;VALUE=DATE:20270101") && txt.contains("DUE;VALUE=DATE:20270120"));
+    let p = calendario_core::ics::read(&txt, "Europe/Madrid");
+    let back = p.tasks.iter().find(|x| x.id == r.id).unwrap();
+    assert_eq!((back.start.as_deref(), back.due.as_deref()), (Some("2027-01-01"), Some("2027-01-20")));
+}

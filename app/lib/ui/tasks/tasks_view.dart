@@ -178,7 +178,7 @@ class _TasksViewState extends State<TasksView> {
           ),
         ]),
       ),
-      if (selNode != null) SizedBox(width: 330, child: TaskInspector(key: ValueKey('${selNode.task.id}@${store.revision}'), store: store, node: selNode)),
+      if (selNode != null) SizedBox(width: 350, child: TaskInspector(key: ValueKey('${selNode.task.id}@${store.revision}'), store: store, node: selNode)),
     ]);
   }
 
@@ -207,7 +207,8 @@ class _TaskRow extends StatelessWidget {
     final t = context.tk;
     final task = node.task;
     final meta = <Widget>[
-      if (task.due != null) Text(relativeDue(task.due!), style: TextStyle(fontSize: 12, color: node.overdue ? t.danger : t.sec)),
+      if (task.due != null || task.start != null)
+        Text(taskDates(task.start, task.due), style: TextStyle(fontSize: 12, color: node.overdue ? t.danger : t.sec)),
       if (task.recurring)
         Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.repeat_rounded, size: 12, color: t.sec),
@@ -384,8 +385,22 @@ class _TaskInspectorState extends State<TaskInspector> {
   late final notes = TextEditingController(text: task.notes);
   late final section = TextEditingController(text: task.section);
   final tagInput = TextEditingController();
+  final titleFocus = FocusNode();
 
   AppStore get store => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    // Tarea recién creada (botón +, bandeja o widget): título listo para escribir.
+    if (task.title == 'Nueva tarea') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        titleFocus.requestFocus();
+        title.selection = TextSelection(baseOffset: 0, extentOffset: title.text.length);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -393,6 +408,7 @@ class _TaskInspectorState extends State<TaskInspector> {
     notes.dispose();
     section.dispose();
     tagInput.dispose();
+    titleFocus.dispose();
     super.dispose();
   }
 
@@ -404,24 +420,90 @@ class _TaskInspectorState extends State<TaskInspector> {
       store.mutate('tasks.save', {'task': task.toJson()});
     } catch (e) {
       showError(context, e);
+      // Se vuelve a lo guardado para no mostrar un valor que no se ha aplicado.
+      setState(() => task = store.task(task.id));
     }
+  }
+
+  Widget _icon(IconData icon, Color c) => Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(7)),
+        child: Icon(icon, size: 14, color: Colors.white),
+      );
+
+  /// Fila con icono, etiqueta y control que ocupa el resto del ancho (nunca se sale del panel).
+  Widget _inline(Tokens t, IconData icon, Color c, String label, Widget control, {bool last = false}) => Container(
+        constraints: const BoxConstraints(minHeight: 40),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: t.border))),
+        child: Row(children: [
+          _icon(icon, c),
+          const SizedBox(width: 10),
+          SizedBox(width: 76, child: Text(label, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: 6),
+          Expanded(child: control),
+        ]),
+      );
+
+  /// Fecha de inicio o de fin: etiqueta arriba y, debajo, fecha y hora (opcional), con botones para quitar.
+  Widget _dateBlock(Tokens t, String label, IconData icon, Color c, String? value, ValueChanged<String?> onChanged) {
+    final d = value == null ? null : DateTime.tryParse(value);
+    final hasTime = value != null && value.contains('T');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 8),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.border))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          _icon(icon, c),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label)),
+          if (d == null)
+            TextButton(
+              onPressed: () {
+                final other = label == 'Fecha fin' ? task.startDate : null;
+                onChanged(fmtCoreDate(other ?? DateTime.now()));
+              },
+              child: const Text('Añadir'),
+            )
+          else
+            IconButton(
+              tooltip: 'Quitar ${label.toLowerCase()}',
+              iconSize: 15,
+              visualDensity: VisualDensity.compact,
+              onPressed: () => onChanged(null),
+              icon: Icon(Icons.close_rounded, color: t.faint),
+            ),
+        ]),
+        if (d != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 34, top: 4),
+            child: Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              DateField(value: d, onChanged: (n) => onChanged(hasTime ? fmtCore(n) : fmtCoreDate(n))),
+              if (hasTime) ...[
+                TimeField(value: d, onChanged: (n) => onChanged(fmtCore(n))),
+                IconButton(
+                  tooltip: 'Quitar la hora',
+                  iconSize: 14,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onChanged(fmtCoreDate(d)),
+                  icon: Icon(Icons.schedule_rounded, color: t.faint),
+                ),
+              ] else
+                TextButton.icon(
+                  onPressed: () => onChanged(fmtCore(DateTime(d.year, d.month, d.day, 9))),
+                  icon: const Icon(Icons.schedule_rounded, size: 14),
+                  label: const Text('Hora'),
+                ),
+            ]),
+          ),
+      ]),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
-    final due = task.dueDate;
-    Widget field(IconData icon, Color c, String label, Widget control) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.border))),
-          child: Row(children: [
-            Container(width: 24, height: 24, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(7)), child: Icon(icon, size: 14, color: Colors.white)),
-            const SizedBox(width: 10),
-            Text(label),
-            const Spacer(),
-            Flexible(child: Align(alignment: Alignment.centerRight, child: control)),
-          ]),
-        );
     final lists = store.writableTaskLists;
     return FloatingPanel(
       padding: const EdgeInsets.all(14),
@@ -433,6 +515,7 @@ class _TaskInspectorState extends State<TaskInspector> {
         ]),
         TextField(
           controller: title,
+          focusNode: titleFocus,
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           decoration: const InputDecoration(filled: false, border: InputBorder.none, enabledBorder: InputBorder.none, contentPadding: EdgeInsets.zero),
           onSubmitted: (_) => _save(),
@@ -455,74 +538,31 @@ class _TaskInspectorState extends State<TaskInspector> {
           decoration: BoxDecoration(color: t.card, borderRadius: BorderRadius.circular(12)),
           clipBehavior: Clip.antiAlias,
           child: Column(children: [
-            field(
-              Icons.calendar_today_rounded,
-              const Color(0xFFFF3B30),
-              'Fecha',
-              due == null
-                  ? TextButton(onPressed: () => setState(() {
-                        task.due = fmtCoreDate(DateTime.now());
-                        _save();
-                      }), child: const Text('Añadir'))
-                  : Row(mainAxisSize: MainAxisSize.min, children: [
-                      DateField(
-                        value: due,
-                        onChanged: (d) {
-                          task.due = task.hasTime ? fmtCore(d) : fmtCoreDate(d);
-                          _save();
-                        },
-                      ),
-                      IconButton(
-                        tooltip: 'Quitar fecha',
-                        iconSize: 14,
-                        onPressed: () {
-                          task.due = null;
-                          task.rrule = null;
-                          task.alarm = null;
-                          _save();
-                        },
-                        icon: Icon(Icons.close_rounded, color: t.faint),
-                      ),
-                    ]),
-            ),
-            if (due != null)
-              field(
-                Icons.schedule_rounded,
-                const Color(0xFF007AFF),
-                'Hora',
-                task.hasTime
-                    ? Row(mainAxisSize: MainAxisSize.min, children: [
-                        TimeField(value: due, onChanged: (d) {
-                          task.due = fmtCore(d);
-                          _save();
-                        }),
-                        IconButton(
-                          tooltip: 'Quitar hora',
-                          iconSize: 14,
-                          onPressed: () {
-                            task.due = fmtCoreDate(due);
-                            task.alarm = null;
-                            _save();
-                          },
-                          icon: Icon(Icons.close_rounded, color: t.faint),
-                        ),
-                      ])
-                    : TextButton(onPressed: () {
-                        task.due = fmtCore(DateTime(due.year, due.month, due.day, 9));
-                        _save();
-                      }, child: const Text('Añadir')),
-              ),
-            if (due != null)
-              field(
+            _dateBlock(t, 'Fecha inicio', Icons.play_arrow_rounded, const Color(0xFF34C759), task.start, (v) {
+              task.start = v;
+              _save();
+            }),
+            _dateBlock(t, 'Fecha fin', Icons.event_rounded, const Color(0xFFFF3B30), task.due, (v) {
+              task.due = v;
+              if (v == null) task.rrule = null;
+              if (v == null || !v.contains('T')) task.alarm = null;
+              _save();
+            }),
+            if (task.due != null)
+              _inline(
+                t,
                 Icons.repeat_rounded,
                 const Color(0xFF8E8E93),
                 'Repetir',
                 DropdownButton<String?>(
-                  value: repeatOptions.containsKey(task.rrule) ? task.rrule : '__custom',
+                  isExpanded: true,
+                  isDense: true,
                   underline: const SizedBox(),
+                  value: repeatOptions.containsKey(task.rrule) ? task.rrule : '__custom',
                   items: [
-                    for (final o in repeatOptions.entries) DropdownMenuItem(value: o.key, child: Text(o.value, style: const TextStyle(fontSize: 13))),
-                    if (!repeatOptions.containsKey(task.rrule)) DropdownMenuItem(value: '__custom', child: Text(describeRule(task.rrule), style: const TextStyle(fontSize: 13))),
+                    for (final o in repeatOptions.entries) DropdownMenuItem(value: o.key, child: Text(o.value, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis)),
+                    if (!repeatOptions.containsKey(task.rrule))
+                      DropdownMenuItem(value: '__custom', child: Text(describeRule(task.rrule), style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis)),
                   ],
                   onChanged: (v) {
                     if (v == '__custom') return;
@@ -532,27 +572,33 @@ class _TaskInspectorState extends State<TaskInspector> {
                 ),
               ),
             if (task.hasTime)
-              field(
+              _inline(
+                t,
                 Icons.notifications_none_rounded,
                 const Color(0xFFFF9500),
                 'Aviso',
                 DropdownButton<int?>(
-                  value: alarmOptions.containsKey(task.alarm) ? task.alarm : null,
+                  isExpanded: true,
+                  isDense: true,
                   underline: const SizedBox(),
-                  items: [for (final o in alarmOptions.entries) DropdownMenuItem(value: o.key, child: Text(o.value, style: const TextStyle(fontSize: 13)))],
+                  value: alarmOptions.containsKey(task.alarm) ? task.alarm : null,
+                  items: [for (final o in alarmOptions.entries) DropdownMenuItem(value: o.key, child: Text(o.value, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis))],
                   onChanged: (v) {
                     task.alarm = v;
                     _save();
                   },
                 ),
               ),
-            field(
+            _inline(
+              t,
               Icons.priority_high_rounded,
               const Color(0xFFFF3B30),
               'Prioridad',
               DropdownButton<int>(
-                value: task.priority,
+                isExpanded: true,
+                isDense: true,
                 underline: const SizedBox(),
+                value: task.priority,
                 items: const [
                   DropdownMenuItem(value: 0, child: Text('Ninguna', style: TextStyle(fontSize: 13))),
                   DropdownMenuItem(value: 1, child: Text('Baja (!)', style: TextStyle(fontSize: 13))),
@@ -565,30 +611,42 @@ class _TaskInspectorState extends State<TaskInspector> {
                 },
               ),
             ),
-            field(
+            _inline(
+              t,
               Icons.flag_rounded,
               const Color(0xFFFF9500),
               'Marcada',
-              Switch(value: task.flagged, onChanged: (v) {
-                task.flagged = v;
-                _save();
-              }),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Switch(
+                  value: task.flagged,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) {
+                    task.flagged = v;
+                    _save();
+                  },
+                ),
+              ),
             ),
             if (task.parentId == null)
-              field(
+              _inline(
+                t,
                 Icons.format_list_bulleted_rounded,
                 const Color(0xFF007AFF),
                 'Lista',
                 DropdownButton<String>(
-                  value: lists.any((l) => l.id == task.listId) ? task.listId : null,
+                  isExpanded: true,
+                  isDense: true,
                   underline: const SizedBox(),
-                  items: [for (final l in lists) DropdownMenuItem(value: l.id, child: Text(l.name, style: const TextStyle(fontSize: 13)))],
+                  value: lists.any((l) => l.id == task.listId) ? task.listId : null,
+                  items: [for (final l in lists) DropdownMenuItem(value: l.id, child: Text(l.name, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis))],
                   onChanged: (v) {
                     if (v == null) return;
                     task.listId = v;
                     _save();
                   },
                 ),
+                last: true,
               ),
           ]),
         ),
