@@ -1,6 +1,6 @@
 [package]
 name = "calendario_core"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Núcleo local-first de Calendario y Tareas: almacenamiento cifrado, recurrencias, .ics, CalDAV y copias de seguridad"
 license = "MIT"

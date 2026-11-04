@@ -608,15 +608,33 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _TS(
             _ts(store, 'agenda.calTitle'),
-            GestureDetector(
-              onSecondaryTapDown: (d) => _widgetMenu(context, d.globalPosition, 'agenda'),
-              child: DragToMoveArea(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 30),
-                  child: Align(alignment: Alignment.centerLeft, child: _monthTitle(month, context, accent)),
+            Row(children: [
+              Expanded(
+                child: GestureDetector(
+                  onSecondaryTapDown: (d) => _widgetMenu(context, d.globalPosition, 'agenda'),
+                  child: DragToMoveArea(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 30),
+                      child: Align(alignment: Alignment.centerLeft, child: _monthTitle(month, context, accent)),
+                    ),
+                  ),
                 ),
               ),
-            ),
+              IconButton(
+                tooltip: 'Mes anterior',
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() => month = addMonths(month, -1)),
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              IconButton(
+                tooltip: 'Mes siguiente',
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() => month = addMonths(month, 1)),
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ]),
           ),
           Expanded(
             child: _TS(
@@ -629,6 +647,7 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
                   cell: cellW,
                   cellHeight: cellH,
                   dayFontSize: _dayFont * _ts(store, 'agenda.calBody'),
+                  dots: _dots(store, month),
                   selected: day,
                   todayColor: accent,
                   onDoubleTap: openAppOn,

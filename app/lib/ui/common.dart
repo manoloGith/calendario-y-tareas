@@ -286,7 +286,7 @@ class MiniMonth extends StatelessWidget {
     final selWeek = selected == null ? null : startOfWeek(selected!);
     final rowH = cellHeight ?? cell;
     // Diámetro del círculo de cada día: cabe en el ancho y en el alto de la casilla.
-    final circle = ((cell < rowH - (dots.isEmpty ? 0 : 5) ? cell : rowH - (dots.isEmpty ? 0 : 5)) - 3).clamp(10.0, 200.0);
+    final circle = ((cell < rowH - (dots.isEmpty ? 0 : 5) ? cell : rowH - (dots.isEmpty ? 0 : 5)) - (dayFontSize != null ? 2 : 3)).clamp(8.0, 200.0);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       if (showHeader)
         Row(children: [
@@ -331,26 +331,35 @@ class MiniMonth extends StatelessWidget {
                     color: inWeek ? t.sel : Colors.transparent,
                     alignment: cellHeight == null ? Alignment.topCenter : Alignment.center,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Container(
-                        width: circle,
-                        height: circle,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isToday ? todayColor : (isSel ? t.pill : Colors.transparent),
-                        ),
-                        child: FittedBox(
-                          // Solo reduce si el número no cabe en la casilla.
-                          fit: BoxFit.scaleDown,
-                          child: Text('${day.day}',
-                            // Con tamaño fijo, ya incluye el ajuste del usuario: no se vuelve a escalar.
-                            textScaler: dayFontSize != null ? TextScaler.noScaling : null,
-                            style: TextStyle(
-                              fontSize: dayFontSize ?? circle * .46,
-                              fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w400,
-                              color: isToday ? Colors.white : (inMonth ? t.text : t.faint),
-                            )),
-                        ),
+                      SizedBox(
+                        width: cell,
+                        height: dayFontSize != null ? (rowH - (dots.isEmpty ? 0 : 5)).clamp(8.0, 400.0) : circle,
+                        child: Stack(alignment: Alignment.center, children: [
+                          // Círculo de «hoy» o del día seleccionado, detrás del número.
+                          Container(
+                            width: circle,
+                            height: circle,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isToday ? todayColor : (isSel ? t.pill : Colors.transparent),
+                            ),
+                          ),
+                          // Margen mínimo de 2 px para que los números no se junten; el número puede ocupar el resto.
+                          Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('${day.day}',
+                                  textScaler: dayFontSize != null ? TextScaler.noScaling : null,
+                                  style: TextStyle(
+                                    fontSize: dayFontSize ?? circle * .46,
+                                    height: dayFontSize != null ? 1.0 : null,
+                                    fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w400,
+                                    color: isToday ? Colors.white : (inMonth ? t.text : t.faint),
+                                  )),
+                            ),
+                          ),
+                        ]),
                       ),
                       if (dots.isNotEmpty)
                         Container(width: 4, height: 4, margin: const EdgeInsets.only(top: 1), decoration: BoxDecoration(shape: BoxShape.circle, color: dot ?? Colors.transparent)),
