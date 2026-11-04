@@ -257,7 +257,10 @@ class MiniMonth extends StatelessWidget {
     this.showHeader = true,
     this.onDoubleTap,
     this.todayColor = const Color(0xFFFF3B30),
+    this.cellHeight,
   });
+  /// Alto de cada fila (por defecto igual que el ancho `cell`): permite llenar un espacio no cuadrado.
+  final double? cellHeight;
   /// Color del círculo de «hoy» (los widgets usan su color de acento).
   final Color todayColor;
   final DateTime month;
@@ -278,6 +281,9 @@ class MiniMonth extends StatelessWidget {
     final start = monthGridStart(month);
     final today = DateTime.now();
     final selWeek = selected == null ? null : startOfWeek(selected!);
+    final rowH = cellHeight ?? cell;
+    // Diámetro del círculo de cada día: cabe en el ancho y en el alto de la casilla.
+    final circle = ((cell < rowH - (dots.isEmpty ? 0 : 5) ? cell : rowH - (dots.isEmpty ? 0 : 5)) - 3).clamp(10.0, 200.0);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       if (showHeader)
         Row(children: [
@@ -293,7 +299,13 @@ class MiniMonth extends StatelessWidget {
       const SizedBox(height: 6),
       Row(children: [
         for (final l in weekdayLetter)
-          SizedBox(width: cell, child: Text(l, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: t.sec))),
+          SizedBox(
+            width: cell,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(l, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: t.sec)),
+            ),
+          ),
       ]),
       for (var w = 0; w < 6; w++)
         Row(children: [
@@ -312,13 +324,13 @@ class MiniMonth extends StatelessWidget {
                   cursor: SystemMouseCursors.click,
                   child: Container(
                     width: cell,
-                    height: cell + (dots.isEmpty ? 0 : 5),
+                    height: cellHeight ?? (cell + (dots.isEmpty ? 0 : 5)),
                     color: inWeek ? t.sel : Colors.transparent,
-                    alignment: Alignment.topCenter,
+                    alignment: cellHeight == null ? Alignment.topCenter : Alignment.center,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Container(
-                        width: cell - 3,
-                        height: cell - 3,
+                        width: circle,
+                        height: circle,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
@@ -328,7 +340,7 @@ class MiniMonth extends StatelessWidget {
                           fit: BoxFit.scaleDown,
                           child: Text('${day.day}',
                             style: TextStyle(
-                              fontSize: cell * .43,
+                              fontSize: circle * .46,
                               fontWeight: isToday || isSel ? FontWeight.w700 : FontWeight.w400,
                               color: isToday ? Colors.white : (inMonth ? t.text : t.faint),
                             )),
@@ -533,17 +545,21 @@ Future<bool> confirm(BuildContext context, String title, String message, {String
   return r ?? false;
 }
 
-/// Para eventos recurrentes: «solo este», «este y los siguientes» o «todos». Devuelve null si se cancela.
+/// Para eventos que se repiten: «solo este», «todas las repeticiones» o «este y los siguientes».
+/// Devuelve "this", "all", "future" o null si se cancela.
 Future<String?> askScope(BuildContext context, {required bool deleting}) => showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(deleting ? 'Eliminar evento recurrente' : 'Cambiar evento recurrente', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-        content: Text(deleting ? '¿Qué ocurrencias quieres eliminar?' : '¿A qué ocurrencias se aplica el cambio?'),
+        title: Text(deleting ? 'Eliminar un evento que se repite' : 'Cambiar un evento que se repite', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        content: Text(deleting
+            ? '¿Quieres eliminar solo este evento o todas sus repeticiones?'
+            : '¿Quieres aplicar el cambio solo a este evento o a todas sus repeticiones?'),
+        actionsOverflowButtonSpacing: 6,
         actions: [
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(c, 'all'), child: const Text('Todas')),
-          TextButton(onPressed: () => Navigator.pop(c, 'future'), child: const Text('Esta y las siguientes')),
-          FilledButton(onPressed: () => Navigator.pop(c, 'this'), child: const Text('Solo esta')),
+          TextButton(onPressed: () => Navigator.pop(c, 'future'), child: const Text('Este y los siguientes')),
+          OutlinedButton(onPressed: () => Navigator.pop(c, 'all'), child: const Text('Todas las repeticiones')),
+          FilledButton(onPressed: () => Navigator.pop(c, 'this'), child: const Text('Solo este evento')),
         ],
       ),
     );

@@ -115,11 +115,15 @@ class _EventEditorState extends State<EventEditor> {
     e.end = e.allDay ? fmtCoreDate(addDays(dateOnly(end.isBefore(start) ? start : end), 1)) : fmtCore(end);
     var scope = 'all';
     String? occ;
-    if (!isNew && originalRule != null && originalRule!.isNotEmpty && widget.occurrence != null) {
+    final wasRecurring = originalRule != null && originalRule!.isNotEmpty;
+    // Si se cambia la propia repetición, el cambio es de toda la serie: no se pregunta.
+    final ruleChanged = (e.rrule ?? '') != (originalRule ?? '');
+    if (!isNew && wasRecurring && !ruleChanged) {
       final s = await askScope(context, deleting: false);
       if (s == null) return;
       scope = s;
-      occ = widget.occurrence!.originalStart;
+      // Abierto desde la búsqueda (sin ocurrencia concreta): se usa la primera de la serie.
+      occ = widget.occurrence?.originalStart ?? originalStart;
       if (scope == 'all') {
         // Al cambiar «todas», se conserva el desplazamiento aplicado sobre la serie original.
         final master = widget.store.event(e.id);
@@ -150,7 +154,8 @@ class _EventEditorState extends State<EventEditor> {
 
   Future<void> _delete() async {
     var scope = 'all';
-    if (e.recurring && widget.occurrence != null) {
+    final wasRecurring = originalRule != null && originalRule!.isNotEmpty;
+    if (wasRecurring) {
       final s = await askScope(context, deleting: true);
       if (s == null) return;
       scope = s;
@@ -158,7 +163,7 @@ class _EventEditorState extends State<EventEditor> {
       return;
     }
     try {
-      widget.store.mutate('events.delete', {'id': e.id, 'scope': scope, if (widget.occurrence != null) 'occurrence': widget.occurrence!.originalStart});
+      widget.store.mutate('events.delete', {'id': e.id, 'scope': scope, 'occurrence': widget.occurrence?.originalStart ?? originalStart});
       if (mounted) Navigator.pop(context);
     } catch (err) {
       if (mounted) showError(context, err);

@@ -34,6 +34,14 @@ ThemeData _theme(bool dark, String? font, String? accent) => _themes.putIfAbsent
       return buildTheme(tokens, fontFamily: font).copyWith(scaffoldBackgroundColor: Colors.transparent);
     });
 
+/// Casillas del mes que llenan exactamente el espacio: 7 columnas de ancho y 6 filas más la de letras.
+(double, double) _monthCells(BuildContext context, BoxConstraints c) {
+  final letters = 18 * MediaQuery.textScalerOf(context).scale(1) + 10; // fila L M X J V S D + separación (con margen)
+  final w = (c.maxWidth / 7).floorToDouble();
+  final h = ((c.maxHeight - letters) / 6).floorToDouble().clamp(12.0, 400.0);
+  return (w, h);
+}
+
 /// Tamaño de texto de una parte del widget (Ajustes › Widgets).
 double _ts(AppStore store, String key) => (store.settings.widgetText[key] ?? 1.0).clamp(0.7, 2.0);
 
@@ -117,7 +125,8 @@ Future<void> runDesktopWidget(String kind, String vaultPath) async {
   final bounds = await initialBounds(kind, prefs);
   final options = WindowOptions(
     size: bounds.size,
-    minimumSize: Size(base.width * .6, base.height * .6),
+    // Tareas puede encogerse más en altura (es una lista con scroll).
+    minimumSize: Size(base.width * .6, kind == 'tasks' ? 130 : base.height * .6),
     maximumSize: Size(base.width * 3, base.height * 3),
     skipTaskbar: true,
     title: widgetTitle(kind),
@@ -523,15 +532,11 @@ class _CalendarWidgetState extends State<_CalendarWidget> {
         child: _TS(
           _ts(store, 'calendar.body'),
           LayoutBuilder(builder: (context, c) {
-            // Celdas que caben en el espacio disponible (crecen al ensanchar o alargar el widget).
-            final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.6) ? c.maxWidth / 7 : c.maxHeight / 7.6).clamp(16.0, 120.0);
-            return Align(
-              alignment: Alignment.topCenter,
-              child: Tooltip(
-                message: 'Doble clic en un día para añadir un evento',
-                waitDuration: const Duration(seconds: 1),
-                child: MiniMonth(month: month, showHeader: false, cell: cell, dots: _dots(store, month), onPick: (_) {}, onDoubleTap: openAppOn, todayColor: accent),
-              ),
+            final (cellW, cellH) = _monthCells(context, c);
+            return Tooltip(
+              message: 'Doble clic en un día para añadir un evento',
+              waitDuration: const Duration(seconds: 1),
+              child: MiniMonth(month: month, showHeader: false, cell: cellW, cellHeight: cellH, dots: _dots(store, month), onPick: (_) {}, onDoubleTap: openAppOn, todayColor: accent),
             );
           }),
         ),
@@ -604,23 +609,19 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
             child: _TS(
               _ts(store, 'agenda.calBody'),
               LayoutBuilder(builder: (context, c) {
-                final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.3) ? c.maxWidth / 7 : c.maxHeight / 7.3).clamp(16.0, 90.0);
-                return SingleChildScrollView(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: MiniMonth(
-                      month: month,
-                      showHeader: false,
-                      cell: cell,
-                      selected: day,
-                      todayColor: accent,
-                      onDoubleTap: openAppOn,
-                      onPick: (d) => setState(() {
-                        day = d;
-                        if (d.month != month.month) month = startOfMonth(d);
-                      }),
-                    ),
-                  ),
+                final (cellW, cellH) = _monthCells(context, c);
+                return MiniMonth(
+                  month: month,
+                  showHeader: false,
+                  cell: cellW,
+                  cellHeight: cellH,
+                  selected: day,
+                  todayColor: accent,
+                  onDoubleTap: openAppOn,
+                  onPick: (d) => setState(() {
+                    day = d;
+                    if (d.month != month.month) month = startOfMonth(d);
+                  }),
                 );
               }),
             ),
