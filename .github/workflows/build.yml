@@ -79,9 +79,14 @@ jobs:
         run: cargo install cargo-ndk --locked
       - name: Análisis estático (Dart)
         working-directory: app
+        shell: bash
         run: |
-          flutter pub get
-          flutter analyze lib tool
+          set -o pipefail
+          { flutter pub get && flutter analyze lib tool; } 2>&1 | tee analyze.log || {
+            msg=$(grep -iE "error|because|version solving|isn't|undefined|invalid" analyze.log | tail -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Fallo del análisis::${msg}"
+            exit 1
+          }
       - name: Compilar APK
         shell: bash
         run: |
@@ -118,9 +123,14 @@ jobs:
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev libsecret-1-dev
       - name: Análisis estático (Dart)
         working-directory: app
+        shell: bash
         run: |
-          flutter pub get
-          flutter analyze lib tool
+          set -o pipefail
+          { flutter pub get && flutter analyze lib tool; } 2>&1 | tee analyze.log || {
+            msg=$(grep -iE "error|because|version solving|isn't|undefined|invalid" analyze.log | tail -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Fallo del análisis::${msg}"
+            exit 1
+          }
       - name: Compilar (Linux / macOS)
         if: runner.os != 'Windows'
         shell: bash
