@@ -4,10 +4,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'bridge.dart';
 import 'dates.dart';
 import 'models.dart';
+import 'platform.dart';
 import 'settings.dart';
 
 enum AppMode { calendar, tasks }
@@ -90,26 +92,67 @@ class AppStore extends ChangeNotifier {
 
   bool get vaultExists => Core.call('vault.exists', {'path': settings.vaultPath}) as bool;
 
+  // Android: la contraseña se recuerda en el almacén seguro de Android (en escritorio, en el llavero del sistema vía Rust).
+  static const _secure = FlutterSecureStorage();
+  String get _secureKey => 'vault:${settings.vaultPath}';
+  bool _rememberedMobile = false;
+
+  /// Actualiza si hay contraseña guardada (en Android la consulta es asíncrona).
+  Future<void> refreshRemembered() async {
+    if (!isMobile) return;
+    try {
+      _rememberedMobile = (await _secure.read(key: _secureKey)) != null;
+    } catch (_) {
+      _rememberedMobile = false;
+    }
+  }
+
   Future<void> create(String password, {bool remember = false}) async {
-    await Core.callAsync('vault.create', {'path': settings.vaultPath, 'password': password, 'remember': remember});
+    await Core.callAsync('vault.create', {'path': settings.vaultPath, 'password': password, 'remember': remember && !isMobile});
+    if (isMobile && remember) await _secure.write(key: _secureKey, value: password);
+    _sessionPassword = password;
     _afterUnlock();
   }
 
   Future<void> open({String? password, bool remember = false}) async {
+    var pw = password;
+    if (isMobile && pw == null) {
+      pw = await _secure.read(key: _secureKey);
+      if (pw == null) throw CoreError('No hay contraseña guardada en este dispositivo', 'keyring');
+    }
     await Core.callAsync('vault.open', {
       'path': settings.vaultPath,
-      if (password != null) 'password': password,
-      'remember': remember,
+      if (pw != null) 'password': pw,
+      'remember': remember && !isMobile,
     });
+    if (isMobile && remember && pw != null) await _secure.write(key: _secureKey, value: pw);
+    if (pw != null) _sessionPassword = pw;
     _afterUnlock();
   }
 
   bool get remembered {
+    if (isMobile) return _rememberedMobile;
     try {
       return Core.call('vault.remembered', {'path': settings.vaultPath}) as bool;
     } catch (_) {
       return false;
     }
+  }
+
+  /// Activa o desactiva «Recordar en este equipo».
+  Future<void> setRemember(bool on) async {
+    if (isMobile) {
+      if (on) {
+        if (_sessionPassword == null) throw CoreError('Vuelve a abrir la app con la contraseña para poder recordarla', 'invalid');
+        await _secure.write(key: _secureKey, value: _sessionPassword);
+      } else {
+        await _secure.delete(key: _secureKey);
+      }
+      _rememberedMobile = on;
+    } else {
+      on ? Core.call('vault.remember') : Core.call('vault.forget', {'path': settings.vaultPath});
+    }
+    notifyListeners();
   }
 
   void lock() {
@@ -413,6 +456,7 @@ class AppStore extends ChangeNotifier {
 
   /// Arranca los widgets activados que no estén ya en marcha. La contraseña viaja por stdin si no está en el llavero.
   Future<void> launchWidgets({String? password}) async {
+    if (isMobile) return; // los widgets de escritorio no existen en Android
     for (final kind in Settings.widgetKinds) {
       if (settings.widgets[kind]!.enabled && !widgetAlive(kind)) {
         await launchWidget(kind, password: password);

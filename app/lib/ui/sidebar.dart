@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/bridge.dart';
+import '../core/platform.dart';
 import '../core/dates.dart';
 import '../core/models.dart';
 import '../core/store.dart';
@@ -198,7 +199,7 @@ class CalendarMenu extends StatelessWidget {
                 final p = await pickFile(mode: 'save', title: 'Exportar «${cal.name}»', extensions: ['ics'], filterName: 'iCalendar', defaultName: '${cal.name}.ics');
                 if (p != null) {
                   final n = Core.call('ics.export', {'calendarId': cal.id, 'path': p});
-                  if (context.mounted) showInfo(context, 'Exportados $n elementos a $p');
+                  if (await finishSave(p) && context.mounted) showInfo(context, 'Exportados $n elementos');
                 }
               case 'sync':
                 await store.syncNow();
@@ -232,11 +233,11 @@ class AddSourceButton extends StatelessWidget {
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 230),
         icon: Icon(Icons.add_rounded, color: context.tk.sec),
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'new', child: Text('Nuevo calendario o lista')),
-          PopupMenuItem(value: 'link', child: Text('Enlazar archivo .ics…')),
-          PopupMenuItem(value: 'import', child: Text('Importar .ics…')),
-          PopupMenuItem(value: 'caldav', child: Text('Añadir cuenta CalDAV…')),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'new', child: Text('Nuevo calendario o lista')),
+          if (isDesktop) const PopupMenuItem(value: 'link', child: Text('Enlazar archivo .ics…')),
+          const PopupMenuItem(value: 'import', child: Text('Importar .ics…')),
+          const PopupMenuItem(value: 'caldav', child: Text('Añadir cuenta CalDAV…')),
         ],
         onSelected: (v) => addSource(context, store, v),
       );

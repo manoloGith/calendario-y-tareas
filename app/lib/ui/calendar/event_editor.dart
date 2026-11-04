@@ -209,7 +209,7 @@ class _EventEditorState extends State<EventEditor> {
               Switch(value: e.allDay, onChanged: readonly ? null : (v) => setState(() => e.allDay = v)),
             ]),
             const SizedBox(height: 6),
-            Row(children: [
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 0, runSpacing: 6, children: [
               label('Fecha inicio'),
               DateField(
                 value: start,
@@ -232,7 +232,7 @@ class _EventEditorState extends State<EventEditor> {
               ],
             ]),
             const SizedBox(height: 8),
-            Row(children: [
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 0, runSpacing: 6, children: [
               label('Fecha fin'),
               DateField(value: end, onChanged: (d) => setState(() => end = d)),
               if (!e.allDay) ...[const SizedBox(width: 8), TimeField(value: end, onChanged: (d) => setState(() => end = d))],

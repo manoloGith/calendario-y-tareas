@@ -97,6 +97,10 @@ def main():
     for n in (16, 32, 48, 64, 128, 256, 512):
         big.resize((n, n), Image.LANCZOS).save(OUT / f"app_icon_{n}.png")
     big.save(OUT / "app_icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    # Android (mipmap)
+    for d, n in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+        (OUT / "android" / f"mipmap-{d}").mkdir(parents=True, exist_ok=True)
+        big.resize((n, n), Image.LANCZOS).save(OUT / "android" / f"mipmap-{d}" / "ic_launcher.png")
     print("Icono generado en", OUT)
 
 

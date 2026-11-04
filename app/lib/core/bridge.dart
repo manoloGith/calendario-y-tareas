@@ -26,6 +26,8 @@ class CoreError implements Exception {
 String coreLibraryPath() {
   final override = Platform.environment['CALENDARIO_CORE'];
   if (override != null && override.isNotEmpty) return override;
+  // Android: la biblioteca va dentro del APK (jniLibs) y el sistema la encuentra por su nombre.
+  if (Platform.isAndroid) return 'libcalendario_core.so';
   final exeDir = File(Platform.resolvedExecutable).parent.path;
   final sep = Platform.pathSeparator;
   final libName = Platform.isWindows ? 'calendario_core.dll' : (Platform.isMacOS ? 'libcalendario_core.dylib' : 'libcalendario_core.so');

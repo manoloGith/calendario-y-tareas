@@ -10,9 +10,11 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/bridge.dart';
 import 'core/dates.dart';
+import 'core/platform.dart';
 import 'core/settings.dart';
 import 'core/store.dart';
 import 'desktop_widgets/desktop_widget.dart';
+import 'mobile/mobile_shell.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 import 'ui/tray.dart';
@@ -26,6 +28,13 @@ String? _arg(List<String> args, String name) {
 }
 
 Future<void> main(List<String> args) async {
+  // Android: interfaz móvil, sin ventanas, bandeja ni widgets de escritorio.
+  if (isMobile) {
+    WidgetsFlutterBinding.ensureInitialized();
+    final store = AppStore(Settings.load())..view = CalView.day;
+    runApp(CalendarioApp(store: store));
+    return;
+  }
   final kind = _arg(args, 'widget');
   if (kind != null) {
     return runDesktopWidget(kind, _arg(args, 'vault') ?? Settings.load().vaultPath);
@@ -94,7 +103,7 @@ class CalendarioApp extends StatelessWidget {
           themeMode: switch (store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system },
           localizationsDelegates: const [SpanishMaterialDelegate()],
           navigatorKey: rootNavigatorKey,
-          home: store.unlocked ? Shell(store: store) : UnlockPage(store: store),
+          home: store.unlocked ? (isMobile ? MobileShell(store: store) : Shell(store: store)) : UnlockPage(store: store),
         ),
       );
 }

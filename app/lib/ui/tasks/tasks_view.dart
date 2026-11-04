@@ -10,8 +10,10 @@ import '../common.dart';
 import '../theme.dart';
 
 class TasksView extends StatefulWidget {
-  const TasksView({super.key, required this.store});
+  const TasksView({super.key, required this.store, this.compact = false});
   final AppStore store;
+  /// Móvil: sin panel lateral; tocar una tarea abre su detalle a pantalla completa.
+  final bool compact;
   @override
   State<TasksView> createState() => _TasksViewState();
 }
@@ -160,6 +162,7 @@ class _TasksViewState extends State<TasksView> {
                           expanded: expanded.contains(n.task.id),
                           showList: scope.listId == null,
                           onExpand: () => setState(() => expanded.contains(n.task.id) ? expanded.remove(n.task.id) : expanded.add(n.task.id)),
+                          onOpen: widget.compact ? () => openTaskPage(context, store, n.task.id) : null,
                         ),
                         if (expanded.contains(n.task.id))
                           for (final c in n.children) _SubtaskRow(store: store, task: c, color: n.color),
@@ -178,7 +181,7 @@ class _TasksViewState extends State<TasksView> {
           ),
         ]),
       ),
-      if (selNode != null) SizedBox(width: 350, child: TaskInspector(key: ValueKey('${selNode.task.id}@${store.revision}'), store: store, node: selNode)),
+      if (selNode != null && !widget.compact) SizedBox(width: 350, child: TaskInspector(key: ValueKey('${selNode.task.id}@${store.revision}'), store: store, node: selNode)),
     ]);
   }
 
@@ -194,7 +197,9 @@ class _TasksViewState extends State<TasksView> {
 }
 
 class _TaskRow extends StatelessWidget {
-  const _TaskRow({required this.store, required this.node, required this.selected, required this.expanded, required this.onExpand, required this.showList});
+  const _TaskRow({required this.store, required this.node, required this.selected, required this.expanded, required this.onExpand, required this.showList, this.onOpen});
+  /// Si se indica, tocar la tarea la abre (móvil) en lugar de seleccionarla.
+  final VoidCallback? onOpen;
   final AppStore store;
   final TaskNode node;
   final bool selected;
@@ -243,7 +248,7 @@ class _TaskRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => store.selectTask(selected ? null : task.id),
+          onTap: onOpen ?? () => store.selectTask(selected ? null : task.id),
           onDoubleTap: node.subTotal > 0 ? onExpand : null,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 9, 8, 9),
@@ -372,9 +377,11 @@ class _AddSubtaskState extends State<_AddSubtask> {
 // ------------------------------------------------------------------ inspector
 
 class TaskInspector extends StatefulWidget {
-  const TaskInspector({super.key, required this.store, required this.node});
+  const TaskInspector({super.key, required this.store, required this.node, this.onClose});
   final AppStore store;
   final TaskNode node;
+  /// Qué hacer al cerrar (móvil: volver atrás). Por defecto, quitar la selección.
+  final VoidCallback? onClose;
   @override
   State<TaskInspector> createState() => _TaskInspectorState();
 }
@@ -511,7 +518,7 @@ class _TaskInspectorState extends State<TaskInspector> {
         Row(children: [
           Text('Detalles', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.sec)),
           const Spacer(),
-          IconButton(tooltip: 'Cerrar', iconSize: 16, onPressed: () => store.selectTask(null), icon: const Icon(Icons.close_rounded)),
+          IconButton(tooltip: 'Cerrar', iconSize: 16, onPressed: widget.onClose ?? () => store.selectTask(null), icon: const Icon(Icons.close_rounded)),
         ]),
         TextField(
           controller: title,
@@ -737,3 +744,32 @@ class _TaskInspectorState extends State<TaskInspector> {
     );
   }
 }
+
+
+/// Móvil: detalle de una tarea a pantalla completa. Se cierra solo si la tarea se borra.
+Future<void> openTaskPage(BuildContext context, AppStore store, String id) => Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Detalles'), backgroundColor: context.tk.window, surfaceTintColor: Colors.transparent),
+        body: SafeArea(
+          child: ListenableBuilder(
+            listenable: store,
+            builder: (context, _) {
+              TaskData? t;
+              try {
+                t = store.task(id);
+              } catch (_) {}
+              if (t == null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+                });
+                return const SizedBox.shrink();
+              }
+              final nodes = store.tasks(TaskScope.list(t.listId), includeCompleted: true);
+              final node = nodes.where((n) => n.task.id == id).firstOrNull;
+              if (node == null) return const SizedBox.shrink();
+              return TaskInspector(key: ValueKey('$id@${store.revision}'), store: store, node: node, onClose: () => Navigator.of(context).pop());
+            },
+          ),
+        ),
+      ),
+    ));

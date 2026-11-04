@@ -37,7 +37,9 @@ tool/build.sh, build.ps1   Compilación con un solo comando
 
 - **Windows:** Visual Studio 2022 con «Desarrollo para el escritorio con C++».
 - **macOS:** Xcode.
-- **Linux:** `sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev`.
+- **Linux:** `sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev libsecret-1-dev`.
+
+**Android:** además, Android Studio (SDK y NDK), Java 17 y cargo-ndk (`rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android` y `cargo install cargo-ndk`). Después: `ANDROID_NDK_HOME=<ruta del NDK> ./tool/build_android.sh` → `app/build/app/outputs/flutter-apk/app-release.apk`. GitHub Actions también genera el APK (artefacto **calendario-Android**).
 
 **Con un solo comando**, desde la carpeta raíz:
 
@@ -107,6 +109,16 @@ Resultado:
 **Adjuntos.** Eventos y tareas admiten documentos, enlaces y carpetas (botón del clip en «Adjuntos»). Los documentos se copian dentro de la base de datos, cifrados (máximo 50 MB cada uno), así que viajan con tus datos y en las copias de seguridad aunque borres el original; al abrirlos se descifra una copia temporal (los cambios que hagas en ella no se guardan en el adjunto: usa «Guardar una copia…»). Los enlaces se abren en el navegador y las carpetas en el explorador (son referencias: si la carpeta se mueve, deja de encontrarse). Los adjuntos no se sincronizan por CalDAV.
 
 **Widgets.** Tres widgets: «Solo calendario», «Calendario y eventos» y «Tareas». En Ajustes › Widgets, para cada uno: activarlo, el **periodo que muestra su lista** (hoy, próximos 3, 7 o 15 días, o el próximo mes) y el **tamaño del texto de cada parte** (70–200 %): título y calendario; título del calendario, calendario, título de la lista y lista de eventos; título y lista de tareas. También la **transparencia del fondo** (0–90 %), el **color de acento** y la fuente, comunes a todos. Los cambios se aplican solos en unos segundos. El **«+»** junto al título abre en la app el formulario de nuevo evento (en el día seleccionado) o una tarea nueva; **doble clic en un día** también abre el formulario de evento. Si un evento o tarea tiene adjuntos, aparece un **clip** para abrirlos. **Clic derecho en la cabecera:** abrir la app o quitar el widget. **Tamaño:** se cambia desde cualquier borde o esquina; al hacerlo hay más o menos espacio (el texto no se agranda ni se encoge: su tamaño lo eliges en Ajustes) y en las listas se ven más o menos elementos, con scroll. Al aparecer en un monitor nuevo, el widget se adapta a su escala (DPI) y resolución, y la posición y el tamaño se guardan **para cada monitor y resolución**.
+
+## Android
+
+La misma app, con una interfaz pensada para el móvil: barra inferior (Calendario, Tareas, Ajustes), menú lateral deslizable con los calendarios o las listas, botón «+» para crear y deslizar a izquierda o derecha para cambiar de día, semana o mes. Las tareas se abren a pantalla completa. Los datos se guardan cifrados en la carpeta privada de la app y la contraseña puede recordarse en el **almacén seguro de Android**. Importar y exportar (.ics, copias de seguridad, adjuntos) usa el selector de archivos del sistema; los enlaces se abren en el navegador y los documentos con su app.
+
+**Instalarla:** descarga el artefacto **calendario-Android** de GitHub Actions, copia `app-release.apk` al móvil y ábrelo (Android pedirá permiso para instalar apps de origen desconocido). Requiere Android 7 o posterior. El APK está firmado con una clave de desarrollo: para publicarlo en una tienda habría que firmarlo con una clave propia.
+
+**Sincronizar con el ordenador:** Ajustes › Cuentas › *Servidor zero-knowledge* › **Conectar a una cuenta existente**, con las mismas direcciones (local y Tailscale) que en el ordenador.
+
+**Todavía no en Android:** avisos/notificaciones de eventos y tareas, widgets de pantalla de inicio, enlazar archivos .ics y adjuntar carpetas.
 
 ## Servidor zero-knowledge (sincronización entre dispositivos)
 
@@ -192,5 +204,5 @@ Las del núcleo cubren:
 
 ## Próximos pasos
 
-1. **App móvil.** Flutter iOS/Android reutilizando el mismo núcleo Rust (incluida la sincronización con el servidor zero-knowledge) y gran parte de la interfaz.
+1. **Android:** avisos con notificaciones y widgets de pantalla de inicio. **iOS:** la misma base que Android.
 2. **Compartir calendarios** cifrados con otras personas (claves de calendario envueltas para cada destinatario).

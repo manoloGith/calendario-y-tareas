@@ -37,6 +37,12 @@ bool _writable(String dir) {
 /// Carpeta de la app (ajustes, señales de los widgets y, por defecto, los datos).
 /// Portable: junto al ejecutable. Si no se puede escribir ahí (p. ej. Archivos de programa), en la carpeta del usuario.
 String appDataDir() => _dataDir ??= () {
+      // Android: carpeta privada de la app (/data/data/<paquete>/app_flutter), junto a su caché.
+      if (Platform.isAndroid) {
+        final d = '${Directory.systemTemp.parent.path}/app_flutter';
+        Directory(d).createSync(recursive: true);
+        return d;
+      }
       final forced = Platform.environment['CALENDARIO_DATA'];
       if (forced != null && forced.isNotEmpty && _writable(forced)) return forced;
       final p = portableDir();

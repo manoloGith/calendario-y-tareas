@@ -2,6 +2,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/bridge.dart';
 import '../core/models.dart';
@@ -11,6 +13,16 @@ import 'theme.dart';
 
 /// Abre una ruta o una URL con la aplicación predeterminada del sistema.
 Future<void> openExternal(String target) async {
+  if (Platform.isAndroid || Platform.isIOS) {
+    final uri = Uri.tryParse(target);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https' || uri.scheme == 'mailto')) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      final r = await OpenFilex.open(target);
+      if (r.type != ResultType.done) throw CoreError(r.type == ResultType.noAppToOpen ? 'No hay ninguna app para abrir este archivo' : r.message, 'error');
+    }
+    return;
+  }
   if (Platform.isWindows) {
     await Process.start('explorer', [target], mode: ProcessStartMode.detached);
   } else {
@@ -105,7 +117,8 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
     if (p == null) return;
     try {
       await Core.callAsync('attachments.export', {'id': a.id, 'path': p});
-      if (mounted) showInfo(context, 'Copia guardada en $p');
+      if (!await finishSave(p)) return;
+      if (mounted) showInfo(context, Platform.isAndroid ? 'Copia guardada' : 'Copia guardada en $p');
     } catch (e) {
       if (mounted) showError(context, e);
     }
@@ -141,10 +154,10 @@ class _AttachmentsSectionState extends State<AttachmentsSection> {
                     iconSize: 16,
                     padding: EdgeInsets.zero,
                     icon: Icon(Icons.attach_file_rounded, color: t.sec),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'file', child: Text('Documento…')),
-                      PopupMenuItem(value: 'link', child: Text('Enlace…')),
-                      PopupMenuItem(value: 'folder', child: Text('Carpeta…')),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'file', child: Text('Documento…')),
+                      const PopupMenuItem(value: 'link', child: Text('Enlace…')),
+                      if (!Platform.isAndroid) const PopupMenuItem(value: 'folder', child: Text('Carpeta…')),
                     ],
                     onSelected: _add,
                   ),

@@ -144,6 +144,29 @@ void macos() {
   }
 }
 
+void android() {
+  // Icono de la app en cada densidad.
+  for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+    copyIfChanged('assets/icon/android/mipmap-$d/ic_launcher.png', 'android/app/src/main/res/mipmap-$d/ic_launcher.png', 'icono $d');
+  }
+  patch('android/app/src/main/AndroidManifest.xml', (s) {
+    var r = s.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Calendario y Tareas"');
+    // Internet para CalDAV y el servidor zero-knowledge (en compilaciones release no viene por defecto).
+    if (!r.contains('android.permission.INTERNET')) {
+      r = r.replaceFirst('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <application');
+    }
+    // Servidores en la red local o por Tailscale con http://: los datos ya van cifrados de extremo a extremo.
+    if (!r.contains('usesCleartextTraffic')) {
+      r = r.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
+    }
+    return r;
+  }, 'nombre, permiso de Internet y conexiones http locales');
+  for (final f in ['android/app/build.gradle.kts', 'android/app/build.gradle']) {
+    // flutter_secure_storage necesita Android 6 o posterior; se fija Android 7 (API 24).
+    patch(f, (s) => s.replaceFirst('minSdk = flutter.minSdkVersion', 'minSdk = 24').replaceFirst('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 24'), 'Android 7 o posterior');
+  }
+}
+
 void main() {
   if (!File('pubspec.yaml').existsSync()) {
     stderr.writeln('Ejecuta este script desde la carpeta app/.');
@@ -152,6 +175,7 @@ void main() {
   if (Directory('linux').existsSync()) linux();
   if (Directory('windows').existsSync()) windows();
   if (Directory('macos').existsSync()) macos();
+  if (Directory('android').existsSync()) android();
   stdout.writeln(changes == 0 ? 'Nada que cambiar (ya estaba aplicado).' : '$changes cambios aplicados.');
   if (warnings > 0) exit(2);
 }

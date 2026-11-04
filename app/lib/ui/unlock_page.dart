@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../core/bridge.dart';
+import '../core/platform.dart';
 import '../core/settings.dart';
 import '../core/store.dart';
 import 'common.dart';
@@ -29,10 +30,10 @@ class _UnlockPageState extends State<UnlockPage> {
   @override
   void initState() {
     super.initState();
-    // Si la contraseña está en el llavero del sistema, se abre directamente.
-    if (!creating && widget.store.remembered) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _submit(useKeyring: true));
-    }
+    // Si la contraseña está guardada (llavero del sistema o almacén seguro de Android), se abre directamente.
+    widget.store.refreshRemembered().then((_) {
+      if (mounted && !creating && widget.store.remembered) _submit(useKeyring: true);
+    });
   }
 
   @override
@@ -122,12 +123,15 @@ class _UnlockPageState extends State<UnlockPage> {
     final t = context.tk;
     return Scaffold(
       body: Column(children: [
-        const DragToMoveArea(
-          child: SizedBox(
-            height: 44,
-            child: Row(children: [SizedBox(width: 16), TrafficLights(), Spacer()]),
-          ),
-        ),
+        if (isDesktop)
+          const DragToMoveArea(
+            child: SizedBox(
+              height: 44,
+              child: Row(children: [SizedBox(width: 16), TrafficLights(), Spacer()]),
+            ),
+          )
+        else
+          const SafeArea(child: SizedBox(height: 8)),
         Expanded(
           child: Center(
             child: SingleChildScrollView(
@@ -171,7 +175,7 @@ class _UnlockPageState extends State<UnlockPage> {
                   Row(children: [
                     Checkbox(value: remember, onChanged: busy ? null : (v) => setState(() => remember = v ?? false)),
                     Expanded(
-                      child: Text('Recordar en este equipo (llavero del sistema). Necesario para que los widgets se abran solos.',
+                      child: Text(isMobile ? 'Recordar en este dispositivo (almacén seguro de Android).' : 'Recordar en este equipo (llavero del sistema). Necesario para que los widgets se abran solos.',
                           style: TextStyle(fontSize: 12, color: t.sec)),
                     ),
                   ]),
@@ -188,7 +192,8 @@ class _UnlockPageState extends State<UnlockPage> {
                         : Text(creating ? 'Crear y empezar' : 'Desbloquear'),
                   ),
                   const SizedBox(height: 12),
-                  Text(widget.store.dataFolder, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: t.faint)),
+                  if (isDesktop) Text(widget.store.dataFolder, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: t.faint)),
+                  if (isDesktop)
                   TextButton(
                     onPressed: busy
                         ? null
@@ -203,6 +208,7 @@ class _UnlockPageState extends State<UnlockPage> {
                     Text('¿Ya tienes datos?', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.sec)),
                     const SizedBox(height: 6),
                     Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 6, children: [
+                      if (isDesktop)
                       OutlinedButton.icon(
                         onPressed: busy ? null : _openExisting,
                         icon: const Icon(Icons.folder_open_rounded, size: 16),

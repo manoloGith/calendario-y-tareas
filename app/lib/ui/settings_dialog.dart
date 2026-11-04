@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../core/bridge.dart';
 import '../core/dates.dart';
 import '../core/models.dart';
+import '../core/platform.dart';
 import 'dart:io';
 
 import '../core/settings.dart';
@@ -17,9 +18,11 @@ Future<void> showSettings(BuildContext context, AppStore store, {int tab = 0}) =
     showDialog(context: context, builder: (_) => SettingsDialog(store: store, initialTab: tab));
 
 class SettingsDialog extends StatefulWidget {
-  const SettingsDialog({super.key, required this.store, this.initialTab = 0});
+  const SettingsDialog({super.key, required this.store, this.initialTab = 0, this.embedded = false});
   final AppStore store;
   final int initialTab;
+  /// Móvil: ajustes a pantalla completa con pestañas (sin la de widgets de escritorio).
+  final bool embedded;
   @override
   State<SettingsDialog> createState() => _SettingsDialogState();
 }
@@ -36,9 +39,38 @@ class _SettingsDialogState extends State<SettingsDialog> {
     (Icons.widgets_outlined, 'Widgets'),
   ];
 
+  Widget _embedded(BuildContext context) {
+    final t = context.tk;
+    final count = isMobile ? tabs.length - 1 : tabs.length;
+    final sections = [_general, _accounts, _security, _backups, _widgets];
+    return DefaultTabController(
+      length: count,
+      child: Column(children: [
+        TabBar(
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelColor: t.accent,
+          unselectedLabelColor: t.sec,
+          indicatorColor: t.accent,
+          tabs: [for (var i = 0; i < count; i++) Tab(icon: Icon(tabs[i].$1, size: 18), text: tabs[i].$2)],
+        ),
+        Expanded(
+          child: ListenableBuilder(
+            listenable: store,
+            builder: (context, _) => TabBarView(children: [
+              for (var i = 0; i < count; i++)
+                SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), child: sections[i](context)),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
+    if (widget.embedded) return _embedded(context);
     return Dialog(
       child: SizedBox(
         width: 760,
@@ -94,7 +126,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   Widget _row(String label, Widget control) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(children: [SizedBox(width: 190, child: Text(label)), Expanded(child: Align(alignment: Alignment.centerLeft, child: control))]),
+        child: widget.embedded && MediaQuery.sizeOf(context).width < 600
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(label, style: TextStyle(color: context.tk.sec, fontSize: 12.5)),
+                const SizedBox(height: 4),
+                control,
+              ])
+            : Row(children: [SizedBox(width: 190, child: Text(label)), Expanded(child: Align(alignment: Alignment.centerLeft, child: control))]),
       );
 
   // ---------------------------------------------------------------- general
@@ -143,6 +181,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ),
       ),
       _row('Zona horaria', Text('${info['tz']}', style: TextStyle(color: context.tk.sec))),
+      if (isDesktop)
       _row(
         'Carpeta de datos',
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -157,7 +196,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
       const SizedBox(height: 18),
       _title('Archivos .ics', 'Un archivo enlazado se mantiene sincronizado: los cambios se escriben en él y se releen si otro programa lo modifica.'),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton.icon(onPressed: () => addSource(context, store, 'link'), icon: const Icon(Icons.link_rounded, size: 16), label: const Text('Enlazar archivo…')),
+        if (isDesktop)
+          OutlinedButton.icon(onPressed: () => addSource(context, store, 'link'), icon: const Icon(Icons.link_rounded, size: 16), label: const Text('Enlazar archivo…')),
         OutlinedButton.icon(onPressed: () => addSource(context, store, 'import'), icon: const Icon(Icons.file_download_outlined, size: 16), label: const Text('Importar una copia…')),
       ]),
       const SizedBox(height: 8),
@@ -334,16 +374,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
         'Recordar en este equipo',
         Switch(
           value: remembered,
-          onChanged: (v) {
+          onChanged: (v) async {
             try {
-              if (v) {
-                Core.call('vault.remember');
-              } else {
-                Core.call('vault.forget', {'path': store.settings.vaultPath});
-              }
+              await store.setRemember(v);
               setState(() {});
             } catch (e) {
-              showError(context, e);
+              if (context.mounted) showError(context, e);
             }
           },
         ),
@@ -399,6 +435,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
             if (pw == null || !context.mounted) return;
             try {
               final r = await Core.callAsync('backup.create', {'path': p, 'password': pw}) as Map;
+              if (!await finishSave(p)) return;
               if (context.mounted) showInfo(context, 'Copia verificada: ${r['events']} eventos y ${r['tasks']} tareas.');
             } catch (e) {
               if (context.mounted) showError(context, e);

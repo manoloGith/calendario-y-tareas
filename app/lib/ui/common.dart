@@ -1,6 +1,7 @@
 // Componentes de interfaz compartidos (estilo macOS).
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -155,6 +156,7 @@ class TrafficLights extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (Platform.isMacOS) return const SizedBox(width: 70, height: 14);
+    if (Platform.isAndroid || Platform.isIOS) return const SizedBox.shrink();
     Widget dot(Color c, IconData icon, String tip, VoidCallback onTap) => Tooltip(
           message: tip,
           child: _Dot(color: c, icon: icon, onTap: onTap),
@@ -603,8 +605,29 @@ Future<String?> promptText(BuildContext context, String title, {String label = '
   );
 }
 
-/// Diálogo nativo de archivos (vía núcleo Rust). Devuelve null si se cancela.
+/// Diálogo de archivos. Escritorio: diálogo nativo (núcleo Rust). Android: selector del sistema.
+/// En modo «save» en Android devuelve una ruta temporal: tras escribir en ella hay que llamar a `finishSave`.
 Future<String?> pickFile({String mode = 'open', String title = '', List<String> extensions = const [], String filterName = 'Archivos', String? defaultName}) async {
+  if (Platform.isAndroid) {
+    switch (mode) {
+      case 'save':
+        final dir = Directory('${Directory.systemTemp.path}/exportar')..createSync(recursive: true);
+        final name = defaultName ?? 'archivo';
+        _pendingSaves['${dir.path}/$name'] = name;
+        return '${dir.path}/$name';
+      case 'folder':
+        return null; // en Android no se usan carpetas sueltas
+      default:
+        // Extensiones propias (.calbak, .ics) no siempre tienen tipo MIME en Android: se filtra después.
+        final r = await FilePicker.platform.pickFiles(dialogTitle: title.isEmpty ? null : title);
+        final path = r?.files.firstOrNull?.path;
+        if (path == null) return null;
+        if (extensions.isNotEmpty && !extensions.any((e) => path.toLowerCase().endsWith('.${e.toLowerCase()}'))) {
+          throw CoreError('Elige un archivo ${extensions.map((e) => '.$e').join(' o ')}', 'invalid');
+        }
+        return path;
+    }
+  }
   final r = await Core.callAsync('sys.pickFile', {
     'mode': mode,
     'title': title,
@@ -613,6 +636,22 @@ Future<String?> pickFile({String mode = 'open', String title = '', List<String> 
     if (defaultName != null) 'defaultName': defaultName,
   });
   return r as String?;
+}
+
+final _pendingSaves = <String, String>{};
+
+/// Android: entrega al sistema el archivo escrito en la ruta temporal de `pickFile(mode: 'save')` para
+/// que el usuario elija dónde guardarlo. En escritorio no hace nada (ya se escribió en su sitio).
+/// Devuelve false si el usuario cancela.
+Future<bool> finishSave(String path) async {
+  final name = _pendingSaves.remove(path);
+  if (name == null) return true;
+  final f = File(path);
+  final saved = await FilePicker.platform.saveFile(fileName: name, bytes: f.readAsBytesSync());
+  try {
+    f.deleteSync();
+  } catch (_) {}
+  return saved != null;
 }
 
 /// Etiqueta #tag.

@@ -9,3 +9,4 @@ app/pubspec.lock
 *.calbak
 server/target/
 server/datos-servidor/
+app/android/

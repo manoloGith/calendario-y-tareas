@@ -13,11 +13,42 @@ use std::sync::Mutex;
 
 static VAULT: Mutex<Option<Vault>> = Mutex::new(None);
 
+#[cfg(not(target_os = "android"))]
 const KEYRING_SERVICE: &str = "calendario-y-tareas";
 
+#[cfg(not(target_os = "android"))]
 fn keyring_entry(path: &Path) -> Result<keyring::Entry> {
     let user = format!("vault:{}", path.display());
     keyring::Entry::new(KEYRING_SERVICE, &user).map_err(|e| Error::Keyring(e.to_string()))
+}
+
+/// Android: la contraseña se recuerda en el almacén seguro de Android desde la app Flutter.
+#[cfg(target_os = "android")]
+mod keyring {
+    pub struct Entry;
+    #[derive(Debug)]
+    pub struct Unavailable;
+    impl std::fmt::Display for Unavailable {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("no disponible en Android")
+        }
+    }
+    impl Entry {
+        pub fn get_password(&self) -> Result<String, Unavailable> {
+            Err(Unavailable)
+        }
+        pub fn set_password(&self, _p: &str) -> Result<(), Unavailable> {
+            Err(Unavailable)
+        }
+        pub fn delete_credential(&self) -> Result<(), Unavailable> {
+            Err(Unavailable)
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+fn keyring_entry(_path: &Path) -> Result<keyring::Entry> {
+    Ok(keyring::Entry)
 }
 
 fn p<T: DeserializeOwned>(params: &Value, key: &str) -> Result<T> {

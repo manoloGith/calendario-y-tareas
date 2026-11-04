@@ -90,6 +90,7 @@ pub fn pin_to_desktop(_title: &str) -> Result<bool> {
 }
 
 /// Diálogo nativo de archivos. `mode`: "open", "save" o "folder". Devuelve la ruta elegida o None si se cancela.
+#[cfg(not(target_os = "android"))]
 pub fn pick_file(mode: &str, title: &str, filter_name: &str, extensions: &[String], default_name: Option<&str>) -> Option<String> {
     let mut d = rfd::FileDialog::new().set_title(title);
     if !extensions.is_empty() {
@@ -108,6 +109,7 @@ pub fn pick_file(mode: &str, title: &str, filter_name: &str, extensions: &[Strin
 }
 
 /// Notificación del sistema (avisos de eventos y tareas).
+#[cfg(not(target_os = "android"))]
 pub fn notify(title: &str, body: &str) -> Result<bool> {
     notify_rust::Notification::new()
         .appname("Calendario y Tareas")
@@ -156,4 +158,16 @@ pub fn single_instance(key: &str) -> bool {
 #[cfg(not(windows))]
 pub fn single_instance(_key: &str) -> bool {
     true // en macOS y Linux se usa el bloqueo de archivo de la app
+}
+
+/// En Android los archivos se eligen desde la app (selector del sistema).
+#[cfg(target_os = "android")]
+pub fn pick_file(_mode: &str, _title: &str, _filter_name: &str, _extensions: &[String], _default_name: Option<&str>) -> Option<String> {
+    None
+}
+
+/// En Android las notificaciones las gestiona la app.
+#[cfg(target_os = "android")]
+pub fn notify(_title: &str, _body: &str) -> Result<bool> {
+    Ok(false)
 }

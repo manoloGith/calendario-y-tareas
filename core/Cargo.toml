@@ -1,6 +1,6 @@
 [package]
 name = "calendario_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Núcleo local-first de Calendario y Tareas: almacenamiento cifrado, recurrencias, .ics, CalDAV y copias de seguridad"
 license = "MIT"
@@ -29,9 +29,12 @@ hmac = "0.12"
 thiserror = "1"
 regex = "1"
 iana-time-zone = "0.1"
+
+# Solo escritorio: llavero del sistema, diálogos de archivos y notificaciones (Android usa los de la app Flutter).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 notify-rust = "4"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Security"] }
