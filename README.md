@@ -2,11 +2,12 @@
 
 Aplicación de escritorio (Windows, macOS y Linux) de calendario y gestor de tareas con estilo macOS, modo claro y oscuro, widgets anclados al escritorio y datos **locales y cifrados**. La interfaz está hecha en Flutter y toda la lógica en un núcleo Rust.
 
-Esta versión trabaja **local primero**: todo se guarda en una base de datos cifrada del equipo y funciona sin red. Los conectores disponibles son archivos **.ics** y **CalDAV**. La sincronización entre dispositivos con cifrado de extremo a extremo llegará con el **servidor zero-knowledge** (ver «Próximos pasos»); el núcleo ya está preparado para él.
+Trabaja **local primero**: todo se guarda en una base de datos cifrada del equipo y funciona sin red. Para sincronizar entre tus dispositivos con **cifrado de extremo a extremo** está el **servidor zero-knowledge** propio (carpeta `server/`); además hay conectores de archivos **.ics** y **CalDAV**.
 
 ## Contenido
 
 ```
+server/               Servidor de sincronización zero-knowledge (Rust, axum, SQLite) + Dockerfile
 core/                 Núcleo Rust (biblioteca nativa calendario_core)
   src/db.rs           Base de datos SQLCipher, registro de cambios
   src/vault.rs        Reglas de negocio: rangos, listas inteligentes, recurrencias, .ics, CalDAV, avisos
@@ -15,6 +16,8 @@ core/                 Núcleo Rust (biblioteca nativa calendario_core)
   src/caldav.rs       Conector CalDAV (descubrimiento, subida con ETag, descarga, conflictos)
   src/nlp.rs          Captura rápida en lenguaje natural (español)
   src/backup.rs       Copias .calbak (XChaCha20-Poly1305 + Argon2id)
+  src/zk.rs           Cliente del servidor zero-knowledge (claves, cifrado por bloque, sincronización)
+  src/endpoints.rs    Varias direcciones por servidor (local, VPN…) con prueba de conexión
   src/desktop.rs      Anclaje de widgets, diálogos de archivos, notificaciones
   src/api.rs, ffi.rs  API JSON y la interfaz C que usa Flutter
   tests/              Pruebas de integración (bóveda, API, CalDAV real)
@@ -105,6 +108,36 @@ Resultado:
 
 **Widgets.** Tres widgets: «Solo calendario», «Calendario y eventos» y «Tareas». En Ajustes › Widgets, para cada uno: activarlo, el **periodo que muestra su lista** (hoy, próximos 3, 7 o 15 días, o el próximo mes) y el **tamaño del texto de cada parte** (70–200 %): título y calendario; título del calendario, calendario, título de la lista y lista de eventos; título y lista de tareas. También la **transparencia del fondo** (0–90 %), el **color de acento** y la fuente, comunes a todos. Los cambios se aplican solos en unos segundos. El **«+»** junto al título abre en la app el formulario de nuevo evento (en el día seleccionado) o una tarea nueva; **doble clic en un día** también abre el formulario de evento. Si un evento o tarea tiene adjuntos, aparece un **clip** para abrirlos. **Clic derecho en la cabecera:** abrir la app o quitar el widget. **Tamaño:** se cambia desde cualquier borde o esquina; al hacerlo hay más o menos espacio (el texto no se agranda ni se encoge: su tamaño lo eliges en Ajustes) y en las listas se ven más o menos elementos, con scroll. Al aparecer en un monitor nuevo, el widget se adapta a su escala (DPI) y resolución, y la posición y el tamaño se guardan **para cada monitor y resolución**.
 
+## Servidor zero-knowledge (sincronización entre dispositivos)
+
+El servidor solo guarda **bloques cifrados** y los reparte entre tus equipos. No puede leer títulos, fechas, notas, ubicaciones, etiquetas ni adjuntos, ni sabe cuántos eventos o tareas tienes de cada tipo (los identificadores de los bloques también son opacos). Tampoco conoce tu contraseña de sincronización.
+
+**Ponerlo en marcha** (en un NAS, una Raspberry Pi, un servidor o un PC que esté siempre encendido):
+
+- **Docker** (desde la raíz del repositorio): `docker compose -f server/docker-compose.yml up -d`. Los datos quedan en `server/datos-servidor/`.
+- **Ejecutable**: descarga `calendario-zk-server` (Linux) o `calendario-zk-server.exe` (Windows) de los artefactos de GitHub Actions y ejecútalo: `calendario-zk-server --listen=0.0.0.0:8787 --db=calendario-zk.db`. `--help` muestra todas las opciones (también como variables de entorno `CALZK_*`).
+- Cuando hayas creado tus cuentas, cierra el registro con `--register=false` (o `CALZK_REGISTER=false`).
+
+**Acceso desde fuera de casa.** Lo más sencillo es **Tailscale**: instala Tailscale en el servidor y en tus equipos y usa como dirección alternativa la de Tailscale (p. ej. `http://servidor.tu-red.ts.net:8787`); el tráfico ya va cifrado por la VPN. Si lo publicas en Internet, ponlo detrás de HTTPS (un proxy como Caddy, o directamente con `--tls-cert` y `--tls-key`).
+
+**En la app:** Ajustes › Cuentas › *Servidor zero-knowledge*:
+
+- **Crear cuenta** en el primer equipo: dirección principal (p. ej. la IP local) y alternativa (p. ej. Tailscale), usuario y una contraseña de sincronización (mínimo 10 caracteres, distinta de la de la bóveda). Se muestra un **código de recuperación**: guárdalo, es la única forma de recuperar el acceso si olvidas la contraseña.
+- **Conectar a una cuenta existente** en los demás equipos: se descargan tus datos y se suben los del equipo; los calendarios vacíos con el mismo nombre (los «Personal» y «Trabajo» de una bóveda nueva) se unifican.
+- **Olvidé la contraseña**: con el código de recuperación se fija una nueva.
+- La sincronización es automática (al abrir la app y cada pocos minutos) y local primero: sin red, los cambios esperan. Si un mismo evento o tarea cambia en dos equipos, gana la edición más reciente; un borrado pendiente gana a una copia antigua.
+- Como en CalDAV, se prueba primero la última dirección que funcionó y, si no responde en unos segundos, las demás.
+
+**Qué se sincroniza:** los calendarios y listas «En este equipo», con sus eventos, tareas, subtareas y adjuntos. Los de CalDAV y los archivos .ics enlazados siguen sincronizándose con su propio origen.
+
+**Modelo de seguridad:**
+
+- De la contraseña y una sal propia de la cuenta se derivan con Argon2id (64 MB, 3 pasadas) dos claves: una envuelve la **clave de cuenta** (32 bytes aleatorios que cifran todos los datos) y la otra es la clave de acceso que se envía al servidor, que solo guarda su resumen. La clave de cuenta está en el servidor únicamente envuelta, con la contraseña y con el código de recuperación.
+- Cada elemento es un bloque `XChaCha20-Poly1305(clave de cuenta, gzip(JSON))` cuyo identificador es `HMAC-SHA256(clave de cuenta, tipo:id)`.
+- Cambiar la contraseña no obliga a volver a cifrar nada y cierra las sesiones de los demás equipos.
+- **Lo que sí ve el servidor:** el nombre de usuario, las IP de conexión, cuántos bloques hay, su tamaño y cuándo cambian. Si alguien robara la base de datos del servidor podría intentar adivinar la contraseña probando candidatas, por eso conviene una contraseña larga.
+- Sin HTTPS ni VPN, alguien en tu misma red podría capturar la sesión y **borrar o sustituir** bloques (no leerlos): usa Tailscale o HTTPS fuera de una red de confianza.
+
 ## Arquitectura
 
 ```
@@ -121,7 +154,7 @@ La comunicación es una única función C (`cal_call`) que recibe y devuelve JSO
 
 - **En el equipo, todo:** la base de datos completa (eventos, tareas, cuentas y contraseñas CalDAV) va cifrada con SQLCipher. El archivo de ajustes (`ajustes.json`) solo guarda preferencias (tema, posición de widgets, ruta de la bóveda).
 - **Copias `.calbak`:** cifradas con XChaCha20-Poly1305 y una clave derivada con Argon2id.
-- **CalDAV y .ics no son de extremo a extremo.** El servidor CalDAV y los archivos .ics enlazados o exportados contienen los datos en claro, porque así lo exigen esos formatos para que otras apps los lean. El cifrado de extremo a extremo entre dispositivos llegará con el servidor zero-knowledge.
+- **CalDAV y .ics no son de extremo a extremo.** El servidor CalDAV y los archivos .ics enlazados o exportados contienen los datos en claro, porque así lo exigen esos formatos para que otras apps los lean. Para sincronizar entre dispositivos con cifrado de extremo a extremo, usa el servidor zero-knowledge.
 
 ## Pruebas
 
@@ -134,7 +167,9 @@ python -m radicale --server-hosts 127.0.0.1:5232 --auth-type none --storage-file
 CALDAV_TEST_URL=http://127.0.0.1:5232/ cargo test --test caldav
 ```
 
-Son 26 pruebas. Cubren:
+Y el servidor zero-knowledge, de extremo a extremo (servidor real + tres «equipos»): `cd server && cargo test`.
+
+Las del núcleo cubren:
 
 - cifrado y cambio de contraseña;
 - recurrencias con cambio de horario y edición «solo esta» y «esta y las siguientes»;
@@ -157,5 +192,5 @@ Son 26 pruebas. Cubren:
 
 ## Próximos pasos
 
-1. **Servidor zero-knowledge.** Usará el mismo módulo de conectividad que CalDAV (`core/src/endpoints.rs`): varias direcciones por servidor (local, VPN…), prueba con tiempo de espera corto y rutas independientes del origen. El cliente ya guarda un registro ordenado de cambios (`changes`) y dispone del sobre cifrado de `backup.rs`, que servirán para subir solo blobs cifrados y sincronizar entre dispositivos.
-2. **App móvil.** Flutter iOS/Android reutilizando el mismo núcleo Rust y gran parte de la interfaz.
+1. **App móvil.** Flutter iOS/Android reutilizando el mismo núcleo Rust (incluida la sincronización con el servidor zero-knowledge) y gran parte de la interfaz.
+2. **Compartir calendarios** cifrados con otras personas (claves de calendario envueltas para cada destinatario).

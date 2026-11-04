@@ -127,7 +127,7 @@ class _ShellState extends State<Shell> {
                             onChanged: (_) => store.toggleShowCompleted(),
                           ),
                         const Spacer(),
-                        if (store.accounts.isNotEmpty) ...[
+                        if (store.hasRemote) ...[
                           RoundIconButton(
                             icon: switch (store.syncState) {
                               SyncState.syncing => Icons.sync_rounded,

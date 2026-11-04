@@ -17,3 +17,4 @@ pub mod nlp;
 pub mod recur;
 pub mod time;
 pub mod vault;
+pub mod zk;

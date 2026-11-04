@@ -28,6 +28,16 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
     Ok(key)
 }
 
+/// Deriva `len` bytes de una contraseña con Argon2id (64 MB, 3 pasadas).
+pub fn derive_bytes(password: &str, salt: &[u8], len: usize) -> Result<Vec<u8>> {
+    let params = Params::new(64 * 1024, 3, 1, Some(len)).map_err(|e| Error::Crypto(e.to_string()))?;
+    let mut out = vec![0u8; len];
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into(password.as_bytes(), salt, &mut out)
+        .map_err(|e| Error::Crypto(e.to_string()))?;
+    Ok(out)
+}
+
 /// Cifra con clave de 32 bytes. Formato: nonce(24) || texto cifrado + etiqueta.
 pub fn seal(key: &[u8; 32], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new(key.into());

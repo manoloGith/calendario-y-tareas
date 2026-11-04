@@ -1,0 +1,17 @@
+# Uso: desde la raíz del repositorio,  docker compose -f server/docker-compose.yml up -d
+# Cuando hayas creado tus cuentas, pon CALZK_REGISTER: "false" y vuelve a ejecutar «up -d».
+services:
+  calendario-zk:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      CALZK_REGISTER: "true"
+      # Para HTTPS directo (si no usas Tailscale ni un proxy como Caddy):
+      # CALZK_TLS_CERT: /data/cert.pem
+      # CALZK_TLS_KEY: /data/key.pem
+    volumes:
+      - ./datos-servidor:/data

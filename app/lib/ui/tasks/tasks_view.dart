@@ -712,7 +712,11 @@ class _TaskInspectorState extends State<TaskInspector> {
               child: Text(
                 store.calendar(task.listId)?.source == 'caldav'
                     ? (store.syncState == SyncState.offline ? 'Guardada cifrada en local · se subirá al reconectar' : 'Guardada cifrada en local · se sincroniza con CalDAV')
-                    : 'Guardada cifrada en este equipo',
+                    : store.zkAccounts.isNotEmpty
+                        ? (store.syncState == SyncState.offline
+                            ? 'Cifrada de extremo a extremo · se subirá al reconectar'
+                            : 'Cifrada de extremo a extremo · se sincroniza con tu servidor')
+                        : 'Guardada cifrada en este equipo',
                 style: TextStyle(fontSize: 12, color: t.ok),
               ),
             ),

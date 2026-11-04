@@ -1,5 +1,6 @@
 // Ajustes: general, cuentas CalDAV, archivos .ics, seguridad, copias de seguridad y widgets.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/bridge.dart';
 import '../core/dates.dart';
@@ -214,8 +215,51 @@ class _SettingsDialogState extends State<SettingsDialog> {
       const SizedBox(height: 6),
       FilledButton.icon(onPressed: () => showCalDavDialog(context, store), icon: const Icon(Icons.add_rounded, size: 16), label: const Text('Añadir cuenta CalDAV')),
       const SizedBox(height: 22),
-      _title('Servidor zero-knowledge', 'Próximamente: sincronización entre tus dispositivos con cifrado de extremo a extremo y servidor propio.'),
-      const OutlinedButton(onPressed: null, child: Text('Añadir servidor (próximamente)')),
+      _title('Servidor zero-knowledge',
+          'Sincroniza tus calendarios y listas «En este equipo» entre tus dispositivos a través de tu propio servidor. Todo se cifra en este equipo antes de enviarse: el servidor no puede leer títulos, fechas, notas ni adjuntos, y tampoco conoce tu contraseña.'),
+      for (final z in store.zkAccounts)
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Icon(Icons.shield_outlined, size: 20, color: t.ok),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(z.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text('${z.username} · ${z.urls.map(_host).join('  |  ')}', style: TextStyle(fontSize: 11.5, color: t.sec), overflow: TextOverflow.ellipsis),
+                if (z.activeUrl != null)
+                  Text('Conectada por ${_host(z.activeUrl!)}${z.urls.length > 1 ? (z.activeUrl == z.urls.first ? ' (principal)' : ' (alternativa)') : ''}',
+                      style: TextStyle(fontSize: 11.5, color: t.ok)),
+                Text(
+                  z.lastError != null ? 'Último error: ${z.lastError}' : (z.lastSync != null ? 'Sincronizada: ${_ago(z.lastSync!)}' : 'Aún sin sincronizar'),
+                  style: TextStyle(fontSize: 11.5, color: z.lastError != null ? t.danger : t.sec),
+                ),
+              ]),
+            ),
+            TextButton(onPressed: store.syncState == SyncState.syncing ? null : () => store.syncNow(), child: const Text('Sincronizar')),
+            PopupMenuButton<String>(
+              tooltip: 'Más opciones',
+              icon: Icon(Icons.more_horiz_rounded, color: t.sec),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'urls', child: Text('Editar direcciones…')),
+                const PopupMenuItem(value: 'password', child: Text('Cambiar contraseña de sincronización…')),
+                const PopupMenuDivider(),
+                PopupMenuItem(value: 'remove', child: Text('Quitar de este equipo', style: TextStyle(color: t.danger))),
+                PopupMenuItem(value: 'delete', child: Text('Borrar la cuenta del servidor…', style: TextStyle(color: t.danger))),
+              ],
+              onSelected: (v) => _zkAction(context, z, v),
+            ),
+          ]),
+        ),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        if (store.zkAccounts.isEmpty) ...[
+          FilledButton.icon(onPressed: () => showZkDialog(context, store, mode: 'register'), icon: const Icon(Icons.add_rounded, size: 16), label: const Text('Crear cuenta en un servidor')),
+          OutlinedButton.icon(onPressed: () => showZkDialog(context, store, mode: 'login'), icon: const Icon(Icons.login_rounded, size: 16), label: const Text('Conectar a una cuenta existente')),
+          TextButton(onPressed: () => showZkDialog(context, store, mode: 'recover'), child: const Text('Olvidé la contraseña (código de recuperación)')),
+        ],
+      ]),
       const SizedBox(height: 18),
       _row(
         'Sincronizar cada',
@@ -231,6 +275,41 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ),
       ),
     ]);
+  }
+
+  Future<void> _zkAction(BuildContext context, ZkAccount z, String v) async {
+    try {
+      switch (v) {
+        case 'urls':
+          final text = await promptText(context, 'Direcciones del servidor (separadas por comas)', initial: z.urls.join(', '));
+          if (text == null) return;
+          Core.call('zk.update', {'id': z.id, 'urls': text.split(RegExp(r'[,\s]+')).where((u) => u.isNotEmpty).toList()});
+          store.reload();
+        case 'password':
+          if (!context.mounted) return;
+          final nw = await promptText(context, 'Nueva contraseña de sincronización (mínimo 10 caracteres)', obscure: true);
+          if (nw == null || !context.mounted) return;
+          final again = await promptText(context, 'Repite la nueva contraseña', obscure: true);
+          if (again != nw) {
+            if (context.mounted) showError(context, 'Las contraseñas no coinciden');
+            return;
+          }
+          await Core.callAsync('zk.changePassword', {'id': z.id, 'password': nw});
+          if (context.mounted) showInfo(context, 'Contraseña cambiada. Los demás equipos tendrán que volver a conectarse con la nueva.');
+        case 'remove':
+          if (!await confirm(context, 'Quitar la cuenta de este equipo', 'Este equipo dejará de sincronizar con «${z.name}». Tus datos locales y los del servidor no se borran.', ok: 'Quitar')) return;
+          await Core.callAsync('zk.remove', {'id': z.id});
+          store.reload();
+        case 'delete':
+          if (!await confirm(context, 'Borrar la cuenta del servidor',
+              'Se borrarán del servidor la cuenta «${z.username}» y todos sus datos cifrados. Los datos de este equipo se conservan, pero los demás equipos dejarán de sincronizar. No se puede deshacer.',
+              ok: 'Borrar del servidor')) return;
+          await Core.callAsync('zk.remove', {'id': z.id, 'deleteRemote': true});
+          store.reload();
+      }
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
   }
 
   String _host(String url) {
@@ -687,4 +766,168 @@ Future<void> changeDataFolder(BuildContext context, AppStore store) async {
   } catch (e) {
     if (context.mounted) showError(context, e);
   }
+}
+
+/// Alta en un servidor ZK, conexión a una cuenta existente o recuperación con el código.
+Future<void> showZkDialog(BuildContext context, AppStore store, {required String mode}) async {
+  final url = TextEditingController(text: 'http://');
+  final alt = TextEditingController();
+  final user = TextEditingController();
+  final pass = TextEditingController();
+  final pass2 = TextEditingController();
+  final code = TextEditingController();
+  final name = TextEditingController();
+  var busy = false;
+  String? error;
+  List<Map<String, dynamic>>? probes;
+  List<String> urls() => [url.text.trim(), ...alt.text.split(RegExp(r'[,\s]+')).map((u) => u.trim())].where((u) => u.isNotEmpty && u != 'http://' && u != 'https://').toList();
+  final title = switch (mode) { 'register' => 'Crear cuenta en un servidor', 'recover' => 'Recuperar el acceso', _ => 'Conectar a una cuenta existente' };
+  String? recoveryCode;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (c) => StatefulBuilder(builder: (c, set) {
+      final t = c.tk;
+      Future<void> test() async {
+        set(() {
+          busy = true;
+          error = null;
+          probes = null;
+        });
+        try {
+          final r = await Core.callAsync('zk.test', {'urls': urls()}) as List;
+          set(() => probes = r.cast<Map<String, dynamic>>());
+        } catch (e) {
+          set(() => error = e.toString());
+        } finally {
+          set(() => busy = false);
+        }
+      }
+
+      Future<void> go() async {
+        if (mode != 'login' && pass.text != pass2.text) return set(() => error = 'Las contraseñas no coinciden');
+        if (pass.text.length < 10) return set(() => error = 'La contraseña de sincronización debe tener al menos 10 caracteres');
+        set(() {
+          busy = true;
+          error = null;
+        });
+        try {
+          final r = await Core.callAsync('zk.$mode', {
+            'urls': urls(),
+            'username': user.text.trim(),
+            'password': pass.text,
+            'name': name.text.trim(),
+            if (mode == 'recover') 'recoveryCode': code.text,
+          }) as Map;
+          store.reload();
+          if (r['recoveryCode'] != null) {
+            set(() {
+              recoveryCode = r['recoveryCode'] as String;
+              busy = false;
+            });
+          } else if (c.mounted) {
+            Navigator.pop(c);
+            showInfo(context, 'Conectado. Sincronizando tus datos cifrados…');
+          }
+        } catch (e) {
+          set(() {
+            busy = false;
+            error = e.toString();
+          });
+        }
+      }
+
+      // Tras crear la cuenta: el código de recuperación se muestra una sola vez.
+      if (recoveryCode != null) {
+        return AlertDialog(
+          title: const Text('Guarda tu código de recuperación', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          content: SizedBox(
+            width: 440,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Text('Si olvidas la contraseña de sincronización, este código es la única forma de recuperar el acceso a tus datos cifrados. '
+                  'Nadie más puede hacerlo: ni el servidor ni nosotros. Guárdalo en un lugar seguro (por ejemplo, impreso o en un gestor de contraseñas).'),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(10)),
+                child: SelectableText(recoveryCode!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.2, fontFamily: 'monospace')),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: recoveryCode!)),
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copiar'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Ya lo he guardado')),
+          ],
+        );
+      }
+
+      return AlertDialog(
+        title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              TextField(controller: url, decoration: const InputDecoration(labelText: 'Dirección del servidor', hintText: 'p. ej. http://192.168.1.10:8787')),
+              const SizedBox(height: 8),
+              TextField(controller: alt, decoration: const InputDecoration(labelText: 'Dirección alternativa (opcional)', hintText: 'p. ej. http://servidor.tu-red.ts.net:8787 (Tailscale, VPN…)')),
+              const SizedBox(height: 8),
+              TextField(controller: user, decoration: const InputDecoration(labelText: 'Usuario')),
+              if (mode == 'recover') ...[
+                const SizedBox(height: 8),
+                TextField(controller: code, decoration: const InputDecoration(labelText: 'Código de recuperación', hintText: 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX')),
+              ],
+              const SizedBox(height: 8),
+              TextField(
+                controller: pass,
+                obscureText: true,
+                decoration: InputDecoration(labelText: mode == 'recover' ? 'Nueva contraseña de sincronización' : 'Contraseña de sincronización (mínimo 10 caracteres)'),
+              ),
+              if (mode != 'login') ...[
+                const SizedBox(height: 8),
+                TextField(controller: pass2, obscureText: true, decoration: const InputDecoration(labelText: 'Repite la contraseña')),
+              ],
+              const SizedBox(height: 8),
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'Nombre (opcional)', hintText: 'p. ej. Servidor de casa')),
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 2),
+                child: Text(
+                  mode == 'register'
+                      ? 'Esta contraseña cifra tus datos y es distinta de la de este equipo. Al crear la cuenta recibirás un código de recuperación.'
+                      : 'Al conectar se descargan tus datos y se suben los de este equipo. Los calendarios vacíos con el mismo nombre se unifican.',
+                  style: TextStyle(fontSize: 11.5, color: t.sec),
+                ),
+              ),
+              if (probes != null) ...[
+                const SizedBox(height: 10),
+                for (final p in probes!)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(p['ok'] == true ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 16, color: p['ok'] == true ? t.ok : t.danger),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(p['ok'] == true ? '${p['url']} · responde en ${p['ms']} ms' : '${p['url']} · ${p['error'] ?? 'no responde'}', style: const TextStyle(fontSize: 12))),
+                    ]),
+                  ),
+              ],
+              if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: TextStyle(color: t.danger, fontSize: 12.5))),
+            ]),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: busy ? null : () => Navigator.pop(c), child: const Text('Cancelar')),
+          OutlinedButton(onPressed: busy ? null : test, child: const Text('Probar conexión')),
+          FilledButton(
+            onPressed: busy ? null : go,
+            child: busy
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(switch (mode) { 'register' => 'Crear cuenta', 'recover' => 'Recuperar', _ => 'Conectar' }),
+          ),
+        ],
+      );
+    }),
+  );
 }

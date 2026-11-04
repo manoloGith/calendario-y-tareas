@@ -374,3 +374,22 @@ class Attachment {
   final String target;
   final int size;
 }
+
+/// Cuenta del servidor de sincronización zero-knowledge.
+class ZkAccount {
+  ZkAccount.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String,
+        name = j['name'] as String? ?? '',
+        urls = (j['urls'] as List?)?.cast<String>() ?? const [],
+        activeUrl = j['activeUrl'] as String?,
+        username = j['username'] as String? ?? '',
+        lastSync = j['lastSync'] as String?,
+        lastError = j['lastError'] as String?;
+  final String id;
+  final String name;
+  final List<String> urls;
+  final String? activeUrl;
+  final String username;
+  final String? lastSync;
+  final String? lastError;
+}

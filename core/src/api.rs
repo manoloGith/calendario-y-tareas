@@ -58,6 +58,7 @@ fn code(e: &Error) -> &'static str {
         Error::Invalid(_) => "invalid",
         Error::Net(_) => "offline",
         Error::CalDav(_) => "caldav",
+        Error::Sync(_) => "sync",
         _ => "error",
     }
 }
@@ -309,6 +310,47 @@ fn dispatch(method: &str, a: &Value) -> Result<Value> {
             let pass: Option<String> = opt(a, "password");
             Ok(json!(v.update_caldav(&p::<String>(a, "id")?, name.as_deref(), urls.as_deref(), user.as_deref(), pass.as_deref())?))
         })?,
+        // ------------------------------------------------------------ servidor zero-knowledge
+        "zk.accounts" => with(|v| Ok(json!(crate::zk::accounts(&v.db)?)))?,
+        "zk.test" => json!(crate::zk::test(&urls_param(a)?)?),
+        "zk.register" | "zk.login" | "zk.recover" => {
+            // Operaciones de red y Argon2: con una conexión propia, sin retener la bóveda.
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let db = crate::db::Db::open(&path, &pw)?;
+            let name: String = opt(a, "name").unwrap_or_default();
+            let urls = urls_param(a)?;
+            let user: String = p(a, "username")?;
+            let linked = match method {
+                "zk.register" => crate::zk::register(&db, &name, &urls, &user, &p::<String>(a, "password")?)?,
+                "zk.login" => crate::zk::login(&db, &name, &urls, &user, &p::<String>(a, "password")?)?,
+                _ => crate::zk::recover(&db, &name, &urls, &user, &p::<String>(a, "recoveryCode")?, &p::<String>(a, "password")?)?,
+            };
+            drop(db);
+            let sync = crate::zk::sync_all(&path, &pw, Some(&linked.account.id))?;
+            json!({"account": linked.account, "recoveryCode": linked.recovery_code, "sync": zk_json(sync)})
+        }
+        "zk.sync" => {
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let id = opt::<String>(a, "accountId");
+            zk_json(crate::zk::sync_all(&path, &pw, id.as_deref())?)
+        }
+        "zk.changePassword" => {
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let db = crate::db::Db::open(&path, &pw)?;
+            crate::zk::change_password(&db, &p::<String>(a, "id")?, &p::<String>(a, "password")?)?;
+            json!(true)
+        }
+        "zk.update" => with(|v| {
+            let urls: Option<Vec<String>> = opt(a, "urls");
+            let name: Option<String> = opt(a, "name");
+            Ok(json!(crate::zk::update_urls(&v.db, &p::<String>(a, "id")?, name.as_deref(), urls.as_deref())?))
+        })?,
+        "zk.remove" => {
+            let (path, pw) = with(|v| Ok(v.credentials()))?;
+            let db = crate::db::Db::open(&path, &pw)?;
+            crate::zk::unlink(&db, &p::<String>(a, "id")?, opt(a, "deleteRemote").unwrap_or(false))?;
+            json!(true)
+        }
         "caldav.remove" => with(|v| {
             v.db.delete_account(&p::<String>(a, "id")?)?;
             Ok(json!(true))
@@ -410,4 +452,15 @@ fn urls_param(a: &Value) -> Result<Vec<String>> {
         return Ok(v);
     }
     Ok(vec![p::<String>(a, "url")?])
+}
+
+fn zk_json(res: Vec<(String, std::result::Result<crate::zk::ZkStats, String>)>) -> Value {
+    Value::Array(
+        res.into_iter()
+            .map(|(id, r)| match r {
+                Ok(s) => json!({"accountId": id, "ok": true, "stats": s}),
+                Err(e) => json!({"accountId": id, "ok": false, "error": e}),
+            })
+            .collect(),
+    )
 }

@@ -75,13 +75,13 @@ Widget syncLine(BuildContext context, AppStore store) {
     SyncState.syncing => (t.accent, 'Sincronizando…'),
     SyncState.offline => (const Color(0xFFFF9500), store.pending > 0 ? 'Sin conexión · ${store.pending} cambios en cola' : 'Sin conexión'),
     SyncState.error => (t.danger, store.syncMessage),
-    SyncState.idle => store.accounts.isEmpty
+    SyncState.idle => !store.hasRemote
         ? (const Color(0xFF34C759), 'Datos locales cifrados')
         : (const Color(0xFF34C759), store.pending > 0 ? '${store.pending} cambios pendientes' : (store.syncMessage.isEmpty ? 'Al día' : store.syncMessage)),
   };
   return InkWell(
     borderRadius: BorderRadius.circular(6),
-    onTap: store.accounts.isEmpty ? null : () => store.syncNow(),
+    onTap: !store.hasRemote ? null : () => store.syncNow(),
     child: Padding(
       padding: const EdgeInsets.all(4),
       child: Row(children: [

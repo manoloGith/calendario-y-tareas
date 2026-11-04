@@ -7,3 +7,5 @@ app/macos/
 app/test/widget_test.dart
 app/pubspec.lock
 *.calbak
+server/target/
+server/datos-servidor/

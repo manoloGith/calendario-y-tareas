@@ -53,6 +53,10 @@ class AppStore extends ChangeNotifier {
   bool unlocked = false;
   List<Calendar> calendars = [];
   List<Account> accounts = [];
+  List<ZkAccount> zkAccounts = [];
+
+  /// Hay algo con qué sincronizar (CalDAV o servidor zero-knowledge).
+  bool get hasRemote => accounts.isNotEmpty || zkAccounts.isNotEmpty;
   Counts counts = Counts();
 
   AppMode mode = AppMode.calendar;
@@ -124,7 +128,7 @@ class AppStore extends ChangeNotifier {
     if (!isWidget) {
       _alarmTimer = Timer.periodic(const Duration(seconds: 20), (_) => _checkAlarms());
       _syncTimer = Timer.periodic(Duration(minutes: settings.syncMinutes.clamp(1, 120)), (_) => syncNow(quiet: true));
-      if (accounts.isNotEmpty) syncNow(quiet: true);
+      if (hasRemote) syncNow(quiet: true);
     }
     notifyListeners();
   }
@@ -195,6 +199,7 @@ class AppStore extends ChangeNotifier {
     if (!unlocked) return;
     calendars = (Core.call('calendars.list') as List).map((c) => Calendar.fromJson(c as Map<String, dynamic>)).toList();
     accounts = (Core.call('caldav.accounts') as List).map((a) => Account.fromJson(a as Map<String, dynamic>)).toList();
+    zkAccounts = (Core.call('zk.accounts') as List).map((a) => ZkAccount.fromJson(a as Map<String, dynamic>)).toList();
     counts = Counts.fromJson(Core.call('tasks.counts') as Map<String, dynamic>);
     final info = Core.call('vault.info') as Map<String, dynamic>;
     pending = (info['pending'] as num).toInt();
@@ -310,25 +315,30 @@ class AppStore extends ChangeNotifier {
   // ---------------------------------------------------------------- sincronización
 
   Future<void> syncNow({bool quiet = false}) async {
-    if (accounts.isEmpty || syncState == SyncState.syncing) return;
+    if (!hasRemote || syncState == SyncState.syncing) return;
     syncState = SyncState.syncing;
     syncMessage = 'Sincronizando…';
     notifyListeners();
-    try {
-      final res = (await Core.callAsync('caldav.sync')) as List;
-      final failed = res.where((r) => (r as Map)['ok'] != true).toList();
-      if (failed.isEmpty) {
-        syncState = SyncState.idle;
-        syncMessage = 'Sincronizado ${fmtTime(DateTime.now())}';
-      } else {
-        final msg = (failed.first as Map)['error'] as String? ?? '';
-        final offline = msg.contains('red');
-        syncState = offline ? SyncState.offline : SyncState.error;
-        syncMessage = offline ? 'Sin conexión' : msg;
+    final failures = <String>[];
+    // Servidor zero-knowledge primero (datos locales) y luego CalDAV.
+    for (final (method, has) in [('zk.sync', zkAccounts.isNotEmpty), ('caldav.sync', accounts.isNotEmpty)]) {
+      if (!has) continue;
+      try {
+        final res = (await Core.callAsync(method)) as List;
+        for (final r in res.cast<Map>()) {
+          if (r['ok'] != true) failures.add(r['error'] as String? ?? 'error');
+        }
+      } on CoreError catch (e) {
+        failures.add(e.message);
       }
-    } on CoreError catch (e) {
-      syncState = e.isOffline ? SyncState.offline : SyncState.error;
-      syncMessage = e.isOffline ? 'Sin conexión' : e.message;
+    }
+    if (failures.isEmpty) {
+      syncState = SyncState.idle;
+      syncMessage = 'Sincronizado ${fmtTime(DateTime.now())}';
+    } else {
+      final offline = failures.every((m) => m.contains('red') || m.contains('responde'));
+      syncState = offline ? SyncState.offline : SyncState.error;
+      syncMessage = offline ? 'Sin conexión' : failures.first;
     }
     reload();
   }

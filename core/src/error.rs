@@ -23,6 +23,8 @@ pub enum Error {
     CalDav(String),
     #[error("Error de cifrado: {0}")]
     Crypto(String),
+    #[error("Sincronización: {0}")]
+    Sync(String),
     #[error("Llavero del sistema: {0}")]
     Keyring(String),
 }

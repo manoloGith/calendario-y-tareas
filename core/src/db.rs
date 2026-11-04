@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 CREATE INDEX IF NOT EXISTS attachments_owner ON attachments(owner_id);
 -- Registro de cambios ordenado: base para la futura sincronización con el servidor zero-knowledge.
+-- Cuentas del servidor zero-knowledge (la clave de cuenta va aquí, dentro de la base de datos cifrada).
+CREATE TABLE IF NOT EXISTS zk_accounts (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, urls TEXT NOT NULL, active_url TEXT, username TEXT NOT NULL,
+  token TEXT NOT NULL, account_key BLOB NOT NULL, last_seq INTEGER NOT NULL DEFAULT 0,
+  pushed_seq INTEGER NOT NULL DEFAULT 0, last_sync TEXT, last_error TEXT
+);
 CREATE TABLE IF NOT EXISTS changes (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, entity_id TEXT NOT NULL,
   op TEXT NOT NULL, at TEXT NOT NULL, synced INTEGER NOT NULL DEFAULT 0
@@ -72,6 +78,8 @@ fn migrate(conn: &Connection) -> Result<()> {
 
 pub struct Db {
     pub conn: Connection,
+    /// Con `true`, los cambios no se anotan en el registro (al aplicar lo recibido del servidor ZK, para no reenviarlo).
+    pub suppress_log: std::cell::Cell<bool>,
 }
 
 /// Metadatos de sincronización de un elemento remoto.
@@ -109,7 +117,7 @@ impl Db {
             "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
         )?;
-        Ok(Db { conn })
+        Ok(Db { conn, suppress_log: std::cell::Cell::new(false) })
     }
 
     pub fn change_password(&self, new_password: &str) -> Result<()> {
@@ -126,6 +134,9 @@ impl Db {
     }
 
     fn log(&self, entity: &str, id: &str, op: &str) -> Result<()> {
+        if self.suppress_log.get() {
+            return Ok(());
+        }
         self.conn.execute(
             "INSERT INTO changes(entity, entity_id, op, at) VALUES(?1, ?2, ?3, ?4)",
             params![entity, id, op, time::now_utc_string()],

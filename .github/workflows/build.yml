@@ -33,6 +33,32 @@ jobs:
           CALENDARIO_TZ: Europe/Madrid
         run: cargo test
 
+  server:
+    name: Servidor ZK (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Pruebas de extremo a extremo (servidor + dos equipos)
+        if: runner.os == 'Linux'
+        working-directory: server
+        env:
+          CALENDARIO_TZ: Europe/Madrid
+        run: cargo test
+      - name: Compilar
+        working-directory: server
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calendario-zk-server-${{ runner.os }}
+          path: |
+            server/target/release/calendario-zk-server
+            server/target/release/calendario-zk-server.exe
+
   build:
     name: App (${{ matrix.os }})
     needs: core-tests
