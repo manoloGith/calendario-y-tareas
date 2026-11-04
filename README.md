@@ -26,7 +26,8 @@ app/                  Interfaz Flutter
   lib/ui/             Ventana principal, calendario, tareas, ajustes
   lib/desktop_widgets Widgets de escritorio
   tool/patch_runners.dart  Ajusta los proyectos nativos que genera flutter create (icono incluido)
-  tool/make_icon.py   Genera el icono (assets/icon/) en PNG e ICO
+  tool/make_icon.py   Genera el icono (assets/icon/) en PNG, ICO y Android
+  android_src/        Código nativo de Android: widgets de la pantalla de inicio y actividad principal
 tool/build.sh, build.ps1   Compilación con un solo comando
 .github/workflows/    Compilación y pruebas en Windows, macOS y Linux reales
 ```
@@ -118,7 +119,9 @@ La misma app, con una interfaz pensada para el móvil: barra inferior (Calendari
 
 **Sincronizar con el ordenador:** Ajustes › Cuentas › *Servidor zero-knowledge* › **Conectar a una cuenta existente**, con las mismas direcciones (local y Tailscale) que en el ordenador.
 
-**Todavía no en Android:** avisos/notificaciones de eventos y tareas, widgets de pantalla de inicio, enlazar archivos .ics y adjuntar carpetas.
+**Widgets de la pantalla de inicio:** «Calendario», «Calendario y eventos» y «Tareas». Se añaden manteniendo pulsado un hueco de la pantalla de inicio › Widgets › Calendario y Tareas, y se redimensionan desde el propio Android. Las listas tienen scroll. Tocar un día abre la app en ese día; «+» abre el formulario de nuevo evento o una tarea nueva; tocar una tarea abre su detalle. En Ajustes › Widgets se eligen el periodo de cada lista, el tamaño del texto de cada parte, la transparencia y el color de acento. Como los widgets no pueden abrir la base de datos cifrada, la app les deja una copia de lo próximo (lo que muestran) en su carpeta privada, a la que solo ella tiene acceso, y la actualiza al cambiar los datos.
+
+**Todavía no en Android:** avisos/notificaciones de eventos y tareas, flechas de mes en los widgets, enlazar archivos .ics y adjuntar carpetas.
 
 ## Servidor zero-knowledge (sincronización entre dispositivos)
 
@@ -204,5 +207,5 @@ Las del núcleo cubren:
 
 ## Próximos pasos
 
-1. **Android:** avisos con notificaciones y widgets de pantalla de inicio. **iOS:** la misma base que Android.
+1. **Android:** avisos con notificaciones. **iOS:** la misma base que Android.
 2. **Compartir calendarios** cifrados con otras personas (claves de calendario envueltas para cada destinatario).

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/item_root" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp" android:paddingBottom="6dp">
+    <ImageView android:id="@+id/ring" android:layout_width="18dp" android:layout_height="18dp"
+        android:src="@drawable/widget_ring" android:contentDescription="@null" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="10dp" android:orientation="vertical">
+        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="2" android:ellipsize="end" android:textSize="13sp" />
+        <TextView android:id="@+id/meta" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textSize="11sp" />
+    </LinearLayout>
+    <ImageView android:id="@+id/clip" android:layout_width="14dp" android:layout_height="14dp" android:layout_marginStart="4dp"
+        android:src="@drawable/widget_clip" android:visibility="gone" android:contentDescription="Adjuntos" />
+</LinearLayout>

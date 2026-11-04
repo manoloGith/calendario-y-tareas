@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/bridge.dart';
 import '../../core/dates.dart';
 import '../../core/models.dart';
+import '../../core/platform.dart';
 import '../../core/store.dart';
 import '../attachments.dart';
 import '../common.dart';
@@ -36,11 +37,20 @@ Future<void> openEventEditor(BuildContext context, AppStore store, {String? even
       alarms: allDay ? [] : [10],
     );
   }
+  if (isMobile) {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => EventEditor(store: store, data: data, occurrence: occurrence, fullScreen: true),
+    ));
+    return;
+  }
   await showDialog<void>(context: context, builder: (_) => EventEditor(store: store, data: data, occurrence: occurrence));
 }
 
 class EventEditor extends StatefulWidget {
-  const EventEditor({super.key, required this.store, required this.data, this.occurrence});
+  const EventEditor({super.key, required this.store, required this.data, this.occurrence, this.fullScreen = false});
+  /// Móvil: el editor ocupa toda la pantalla.
+  final bool fullScreen;
   final AppStore store;
   final EventData data;
   final Occurrence? occurrence;
@@ -177,12 +187,7 @@ class _EventEditorState extends State<EventEditor> {
     final cal = widget.store.calendar(e.calendarId);
     final readonly = cal?.readonly ?? false;
     Widget label(String s) => SizedBox(width: 96, child: Text(s, style: TextStyle(color: t.sec)));
-    return Dialog(
-      child: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    final content = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Container(width: 12, height: 12, decoration: BoxDecoration(color: cal?.colorValue ?? t.accent, shape: BoxShape.circle)),
               const SizedBox(width: 10),
@@ -280,15 +285,43 @@ class _EventEditorState extends State<EventEditor> {
             const SizedBox(height: 12),
             AttachmentsSection(store: widget.store, ownerKind: 'event', ownerId: isNew ? null : e.id, pending: pendingAttachments, readonly: readonly),
             const SizedBox(height: 16),
-            Row(children: [
-              if (!isNew && !readonly) TextButton(onPressed: _delete, child: Text('Eliminar', style: TextStyle(color: t.danger))),
-              const Spacer(),
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-              const SizedBox(width: 6),
-              if (!readonly) FilledButton(onPressed: _save, child: const Text('Guardar')),
-            ]),
-          ]),
+            if (widget.fullScreen)
+              Row(children: [
+                if (!isNew && !readonly) TextButton.icon(onPressed: _delete, icon: Icon(Icons.delete_outline_rounded, color: t.danger), label: Text('Eliminar evento', style: TextStyle(color: t.danger))),
+              ])
+            else
+              Row(children: [
+                if (!isNew && !readonly) TextButton(onPressed: _delete, child: Text('Eliminar', style: TextStyle(color: t.danger))),
+                const Spacer(),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+                const SizedBox(width: 6),
+                if (!readonly) FilledButton(onPressed: _save, child: const Text('Guardar')),
+              ]),
+          ]);
+    // Móvil: pantalla completa, con «Guardar» en la barra superior.
+    if (widget.fullScreen) {
+      return Scaffold(
+        backgroundColor: t.window,
+        appBar: AppBar(
+          backgroundColor: t.window,
+          surfaceTintColor: Colors.transparent,
+          leading: IconButton(tooltip: 'Cancelar', icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
+          title: Text(isNew ? 'Nuevo evento' : 'Editar evento', style: const TextStyle(fontWeight: FontWeight.w700)),
+          actions: [
+            if (!readonly)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilledButton(onPressed: _save, child: const Text('Guardar')),
+              ),
+          ],
         ),
+        body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), child: content)),
+      );
+    }
+    return Dialog(
+      child: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(22, 20, 22, 16), child: content),
       ),
     );
   }

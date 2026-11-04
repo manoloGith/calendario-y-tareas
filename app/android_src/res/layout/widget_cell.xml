@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Día del mes: número (con círculo si es hoy) y punto si hay eventos -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/cell" android:layout_width="0dp" android:layout_height="match_parent"
+    android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+    <TextView android:id="@+id/cell_text" android:layout_width="28dp" android:layout_height="28dp"
+        android:gravity="center" android:includeFontPadding="false" android:maxLines="1" android:textSize="13sp" />
+    <ImageView android:id="@+id/cell_dot" android:layout_width="4dp" android:layout_height="4dp"
+        android:src="@drawable/widget_dot" android:visibility="invisible" android:contentDescription="@null" />
+</LinearLayout>

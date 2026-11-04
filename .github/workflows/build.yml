@@ -93,7 +93,7 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           set -o pipefail
           ./tool/build_android.sh 2>&1 | tee build.log || {
-            msg=$(grep -iE "error|fatal|failed|exception|what went wrong" -A2 build.log | tail -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            msg=$(grep -iE "^e: |error|fatal|failed|exception|what went wrong" -A2 build.log | grep -v "^--$" | tail -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error title=Fallo de compilación (Android)::${msg}"
             exit 1
           }

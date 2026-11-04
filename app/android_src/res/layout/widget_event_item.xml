@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/item_root" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="5dp" android:paddingBottom="5dp">
+    <ImageView android:id="@+id/dot" android:layout_width="8dp" android:layout_height="8dp"
+        android:src="@drawable/widget_dot" android:contentDescription="@null" />
+    <TextView android:id="@+id/title" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="8dp" android:maxLines="2" android:ellipsize="end" android:textStyle="bold" android:textSize="13sp" />
+    <TextView android:id="@+id/time" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginStart="6dp" android:textSize="12sp" />
+    <ImageView android:id="@+id/clip" android:layout_width="14dp" android:layout_height="14dp" android:layout_marginStart="4dp"
+        android:src="@drawable/widget_clip" android:visibility="gone" android:contentDescription="Adjuntos" />
+</LinearLayout>

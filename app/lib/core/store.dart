@@ -301,6 +301,13 @@ class AppStore extends ChangeNotifier {
     return r.map((o) => TaskNode.fromJson(o as Map<String, dynamic>)).toList();
   }
 
+  /// Tareas pendientes que vencen o empiezan antes de `until` (incluidas las vencidas).
+  List<TaskNode> tasksUpcoming(String until) {
+    if (!unlocked) return [];
+    final r = Core.call('tasks.list', {'filter': {'smart': 'upcoming', 'until': until}}) as List;
+    return r.map((o) => TaskNode.fromJson(o as Map<String, dynamic>)).toList();
+  }
+
   EventData event(String id) => EventData.fromJson(Core.call('events.get', {'id': id}) as Map<String, dynamic>);
   TaskData task(String id) => TaskData.fromJson(Core.call('tasks.get', {'id': id}) as Map<String, dynamic>);
 

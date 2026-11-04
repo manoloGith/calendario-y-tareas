@@ -479,14 +479,16 @@ class _TimeFieldState extends State<TimeField> {
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
+    // Ancho suficiente para «23:45» con los iconos de reloj y de desplegable (antes se recortaba).
     return SizedBox(
-      width: 96,
+      width: 128,
       child: TextField(
         controller: c,
         style: const TextStyle(fontSize: 13),
         decoration: InputDecoration(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
           prefixIcon: Icon(Icons.schedule_rounded, size: 15, color: t.sec),
-          prefixIconConstraints: const BoxConstraints(minWidth: 30),
+          prefixIconConstraints: const BoxConstraints(minWidth: 28),
           suffixIcon: PopupMenuButton<int>(
             tooltip: 'Elegir hora',
             icon: Icon(Icons.expand_more_rounded, size: 16, color: t.sec),

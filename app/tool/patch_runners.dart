@@ -144,7 +144,39 @@ void macos() {
   }
 }
 
+const _widgetManifest = '''
+        <!-- Widgets de la pantalla de inicio (android_src/kotlin/es/calendario/widgets) -->
+        <receiver android:name="es.calendario.widgets.CalendarWidget" android:exported="false" android:label="Calendario">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_calendar_info" />
+        </receiver>
+        <receiver android:name="es.calendario.widgets.AgendaWidget" android:exported="false" android:label="Calendario y eventos">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_agenda_info" />
+        </receiver>
+        <receiver android:name="es.calendario.widgets.TasksWidget" android:exported="false" android:label="Tareas">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_tasks_info" />
+        </receiver>
+        <service android:name="es.calendario.widgets.ListService" android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+''';
+
+/// Copia (si ha cambiado) todo el árbol `from` dentro de `to`.
+void copyTree(String from, String to, String what) {
+  final root = Directory(from);
+  if (!root.existsSync() || !Directory(to).existsSync()) return;
+  for (final f in root.listSync(recursive: true).whereType<File>()) {
+    final rel = f.path.substring(root.path.length + 1);
+    final dest = File('$to${Platform.pathSeparator}$rel');
+    dest.parent.createSync(recursive: true);
+    copyIfChanged(f.path, dest.path, '$what ($rel)');
+  }
+}
+
 void android() {
+  // Código nativo de los widgets y la actividad principal (canal con la app).
+  copyTree('android_src', 'android/app/src/main', 'widgets de Android');
   // Icono de la app en cada densidad.
   for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
     copyIfChanged('assets/icon/android/mipmap-$d/ic_launcher.png', 'android/app/src/main/res/mipmap-$d/ic_launcher.png', 'icono $d');
@@ -159,8 +191,12 @@ void android() {
     if (!r.contains('usesCleartextTraffic')) {
       r = r.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
     }
+    if (!r.contains('es.calendario.widgets.CalendarWidget')) {
+      final i = r.lastIndexOf('</application>');
+      if (i > 0) r = r.replaceRange(i, i, '$_widgetManifest    ');
+    }
     return r;
-  }, 'nombre, permiso de Internet y conexiones http locales');
+  }, 'nombre, permiso de Internet, conexiones http locales y widgets');
   for (final f in ['android/app/build.gradle.kts', 'android/app/build.gradle']) {
     // flutter_secure_storage necesita Android 6 o posterior; se fija Android 7 (API 24).
     patch(f, (s) => s.replaceFirst('minSdk = flutter.minSdkVersion', 'minSdk = 24').replaceFirst('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 24'), 'Android 7 o posterior');

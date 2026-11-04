@@ -13,6 +13,7 @@ import '../ui/shell.dart';
 import '../ui/sidebar.dart';
 import '../ui/tasks/tasks_view.dart';
 import '../ui/theme.dart';
+import 'android_widgets.dart';
 
 class MobileShell extends StatefulWidget {
   const MobileShell({super.key, required this.store});
@@ -32,6 +33,39 @@ class _MobileShellState extends State<MobileShell> {
   void initState() {
     super.initState();
     store.addListener(_onStore);
+    AndroidWidgets.attach(store, _onWidgetAction);
+  }
+
+  /// Acción recibida al tocar un widget de la pantalla de inicio.
+  void _onWidgetAction(String action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final (kind, arg) = action.contains(':') ? (action.split(':').first, action.substring(action.indexOf(':') + 1)) : (action, '');
+      switch (kind) {
+        case 'day':
+          final d = DateTime.tryParse(arg);
+          setState(() => settings = false);
+          store.setMode(AppMode.calendar);
+          if (d != null) store.goTo(d, view: CalView.day);
+        case 'newEvent':
+          final d = DateTime.tryParse(arg) ?? DateTime.now();
+          setState(() => settings = false);
+          store.setMode(AppMode.calendar);
+          store.goTo(d);
+          _new();
+        case 'newTask':
+          setState(() => settings = false);
+          store.selectScope(const TaskScope.smart('today'));
+          _new();
+        case 'task':
+          setState(() => settings = false);
+          store.setMode(AppMode.tasks);
+          if (arg.isNotEmpty) openTaskPage(context, store, arg);
+        case 'tasks':
+          setState(() => settings = false);
+          store.setMode(AppMode.tasks);
+      }
+    });
   }
 
   @override

@@ -189,6 +189,9 @@ class Settings {
   /// Vuelve a leer del disco (otro proceso, p. ej. un widget, puede haberlo cambiado).
   Settings reload() => load();
 
+  /// Aviso tras guardar (Android: actualizar los widgets de la pantalla de inicio).
+  static void Function()? onSaved;
+
   void save() {
     final j = {
       'vaultPath': toStoredPath(vaultPath),
@@ -210,6 +213,7 @@ class Settings {
     final tmp = File('${file.path}.tmp');
     tmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(j));
     tmp.renameSync(file.path);
+    onSaved?.call();
   }
 }
 

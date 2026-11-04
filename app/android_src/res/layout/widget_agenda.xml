@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget «Calendario y eventos» -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+    <ImageView android:id="@+id/bg" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/widget_bg_light" android:contentDescription="@null" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="horizontal" android:padding="12dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="4"
+            android:orientation="vertical">
+            <TextView android:id="@+id/cal_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingBottom="4dp" android:maxLines="1" android:ellipsize="end" android:textStyle="bold" android:textSize="13sp" />
+            <LinearLayout android:id="@+id/weekdays" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+            <LinearLayout android:id="@+id/grid" android:layout_width="match_parent" android:layout_height="0dp"
+                android:layout_weight="1" android:orientation="vertical" />
+        </LinearLayout>
+        <ImageView android:layout_width="1dp" android:layout_height="match_parent" android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp" android:src="@drawable/widget_divider" android:scaleType="fitXY" android:contentDescription="@null" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="6"
+            android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical" android:paddingBottom="6dp">
+                <TextView android:id="@+id/title" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:maxLines="1" android:ellipsize="end" android:textStyle="bold" android:textSize="15sp" />
+                <TextView android:id="@+id/add" android:layout_width="28dp" android:layout_height="28dp"
+                    android:background="@drawable/widget_add_bg" android:gravity="center" android:text="+"
+                    android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:contentDescription="Nuevo evento" />
+            </LinearLayout>
+            <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+                <ListView android:id="@+id/list" android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:divider="@null" android:dividerHeight="0dp" android:scrollbars="none" />
+                <TextView android:id="@+id/list_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingTop="8dp" android:textSize="13sp" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

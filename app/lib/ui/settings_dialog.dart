@@ -41,7 +41,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   Widget _embedded(BuildContext context) {
     final t = context.tk;
-    final count = isMobile ? tabs.length - 1 : tabs.length;
+    final count = tabs.length;
     final sections = [_general, _accounts, _security, _backups, _widgets];
     return DefaultTabController(
       length: count,
@@ -535,8 +535,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
           SizedBox(width: 48, child: Text('${(s.widgetText[key]! * 100).round()} %', textAlign: TextAlign.right)),
         ]);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _title('Widgets de escritorio',
-          'Ventanas ligeras ancladas al escritorio: siguen visibles con Win+D o «Mostrar escritorio». Muévelos por la cabecera y cambia su tamaño desde los bordes. Los cambios se aplican en unos segundos.'),
+      if (isMobile)
+        _title('Widgets de la pantalla de inicio',
+            'Añádelos manteniendo pulsado un hueco de la pantalla de inicio › Widgets › Calendario y Tareas. Puedes cambiar su tamaño desde el propio Android. Aquí eliges qué muestran y su aspecto.')
+      else
+        _title('Widgets de escritorio',
+            'Ventanas ligeras ancladas al escritorio: siguen visibles con Win+D o «Mostrar escritorio». Muévelos por la cabecera y cambia su tamaño desde los bordes. Los cambios se aplican en unos segundos.'),
       for (final k in Settings.widgetKinds)
         Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -544,7 +548,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
           decoration: BoxDecoration(color: t.sidebar, borderRadius: BorderRadius.circular(12)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Expanded(child: Text(names[k]!, style: const TextStyle(fontWeight: FontWeight.w700))),
+              Expanded(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(names[k]!, style: const TextStyle(fontWeight: FontWeight.w700)))),
+              if (isDesktop)
               Switch(
                 value: s.widgets[k]!.enabled,
                 onChanged: (v) async {
@@ -609,6 +614,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
           ),
         ]),
       ),
+      if (isDesktop) ...[
       const SizedBox(height: 8),
       _title('Fuente de los widgets'),
       _row('Fuente', _fontPicker(context)),
@@ -626,9 +632,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
           ]),
         ),
       ),
+      ],
       const SizedBox(height: 10),
-      if (!store.remembered)
+      if (!store.remembered && isDesktop)
         Text('Consejo: activa «Recordar en este equipo» (Seguridad) para que los widgets se puedan abrir sin la app principal.',
+            style: TextStyle(color: t.sec, fontSize: 12.5)),
+      if (isMobile)
+        Text('Los widgets muestran una copia de lo próximo que se guarda en la carpeta privada de la app y se actualiza al cambiar los datos. Tocarlos abre la app.',
             style: TextStyle(color: t.sec, fontSize: 12.5)),
     ]);
   }
