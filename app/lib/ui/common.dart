@@ -619,10 +619,18 @@ Future<String?> pickFile({String mode = 'open', String title = '', List<String> 
         return null; // en Android no se usan carpetas sueltas
       default:
         // Extensiones propias (.calbak, .ics) no siempre tienen tipo MIME en Android: se filtra después.
-        final r = await FilePicker.platform.pickFiles(dialogTitle: title.isEmpty ? null : title);
-        final path = r?.files.firstOrNull?.path;
-        if (path == null) return null;
-        if (extensions.isNotEmpty && !extensions.any((e) => path.toLowerCase().endsWith('.${e.toLowerCase()}'))) {
+        final files = await FilePicker.pickFiles(dialogTitle: title.isEmpty ? null : title);
+        final f = files.firstOrNull;
+        if (f == null) return null;
+        // Puede llegar como content:// (sin ruta): se copia a un archivo temporal que el núcleo pueda leer.
+        var path = f.path;
+        if (path == null) {
+          final dir = Directory('${Directory.systemTemp.path}/importar')..createSync(recursive: true);
+          path = '${dir.path}/${f.name}';
+          File(path).writeAsBytesSync(await f.readAsBytes());
+        }
+        final lower = path.toLowerCase();
+        if (extensions.isNotEmpty && !extensions.any((e) => lower.endsWith('.${e.toLowerCase()}'))) {
           throw CoreError('Elige un archivo ${extensions.map((e) => '.$e').join(' o ')}', 'invalid');
         }
         return path;
@@ -647,7 +655,7 @@ Future<bool> finishSave(String path) async {
   final name = _pendingSaves.remove(path);
   if (name == null) return true;
   final f = File(path);
-  final saved = await FilePicker.platform.saveFile(fileName: name, bytes: f.readAsBytesSync());
+  final saved = await FilePicker.saveFile(fileName: name, bytes: f.readAsBytesSync());
   try {
     f.deleteSync();
   } catch (_) {}
