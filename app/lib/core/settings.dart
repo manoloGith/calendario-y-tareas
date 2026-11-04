@@ -114,6 +114,12 @@ class Settings {
           for (final k in widgetKinds)
             k: (((j['widgetFontScales'] as Map?)?[k] as num?) ?? (j['widgetFontScale'] as num?) ?? 1.0).toDouble(),
         },
+        widgetText = {
+          for (final k in widgetTextKeys.keys)
+            k: (((j['widgetText'] as Map?)?[k] as num?) ?? 1.0).toDouble(),
+        },
+        widgetTransparency = (((j['widgetTransparency'] as num?) ?? 10).toInt()).clamp(0, 90),
+        widgetAccent = j['widgetAccent'] as String?,
         widgetRanges = {
           'agenda': (((j['widgetRanges'] as Map?)?['agenda'] as num?) ?? 3).toInt(),
           'tasks': (((j['widgetRanges'] as Map?)?['tasks'] as num?) ?? 1).toInt(),
@@ -141,6 +147,22 @@ class Settings {
   final Map<String, double> widgetFontScales;
   /// Días que muestra la lista de cada widget (1 = hoy, 3, 7, 15, 30 = un mes).
   final Map<String, int> widgetRanges;
+  /// Tamaño del texto de cada parte de los widgets (ver `widgetTextKeys`), 1.0 = normal.
+  final Map<String, double> widgetText;
+  /// Transparencia del fondo de los widgets, en % (0 = opaco).
+  int widgetTransparency;
+  /// Color de acento de los widgets (null = el de la app).
+  String? widgetAccent;
+
+  /// Huella de los ajustes que afectan al aspecto de los widgets (para detectar cambios).
+  String get widgetSignature => jsonEncode({
+        'theme': themeMode,
+        'font': widgetFont,
+        'text': widgetText,
+        'ranges': widgetRanges,
+        'transparency': widgetTransparency,
+        'accent': widgetAccent,
+      });
   bool trayHintShown;
   /// "system", "light" o "dark"
   String themeMode;
@@ -169,6 +191,9 @@ class Settings {
       'widgetFontScale': widgetFontScale,
       'widgetFontScales': widgetFontScales,
       'widgetRanges': widgetRanges,
+      'widgetText': widgetText,
+      'widgetTransparency': widgetTransparency,
+      'widgetAccent': widgetAccent,
       'trayHintShown': trayHintShown,
       'themeMode': themeMode,
       'defaultCalendarId': defaultCalendarId,
@@ -267,3 +292,15 @@ bool acquireInstanceLock(String name) {
 bool get holdsInstanceLock => _lock != null;
 
 const widgetRangeOptions = {1: 'Hoy', 3: 'Próximos 3 días', 7: 'Próximos 7 días', 15: 'Próximos 15 días', 30: 'Próximo mes'};
+
+/// Partes de los widgets con tamaño de texto propio: clave → (widget, descripción).
+const widgetTextKeys = {
+  'calendar.title': ('calendar', 'Título'),
+  'calendar.body': ('calendar', 'Calendario'),
+  'agenda.calTitle': ('agenda', 'Título del calendario'),
+  'agenda.calBody': ('agenda', 'Calendario'),
+  'agenda.listTitle': ('agenda', 'Título de la lista'),
+  'agenda.listBody': ('agenda', 'Lista de eventos'),
+  'tasks.title': ('tasks', 'Título'),
+  'tasks.body': ('tasks', 'Lista de tareas'),
+};

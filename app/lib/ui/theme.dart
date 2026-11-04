@@ -94,6 +94,13 @@ class Tokens extends ThemeExtension<Tokens> {
 
   Color tint(Color c) => c.withValues(alpha: tintAlpha);
 
+  /// Los mismos tokens con otro color de acento (widgets).
+  Tokens withAccent(Color c) => Tokens(
+        window: window, sidebar: sidebar, sideBorder: sideBorder, border: border, text: text, sec: sec, faint: faint,
+        pill: pill, pillSel: pillSel, glass: glass, card: card, allDay: allDay, tag: tag, sel: c.withValues(alpha: dark ? .18 : .09),
+        accent: c, danger: danger, warn: warn, warnBg: warnBg, ok: ok, okBg: okBg, tintAlpha: tintAlpha, dark: dark,
+      );
+
   @override
   Tokens copyWith() => this;
 

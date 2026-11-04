@@ -256,7 +256,10 @@ class MiniMonth extends StatelessWidget {
     this.highlightWeek = false,
     this.showHeader = true,
     this.onDoubleTap,
+    this.todayColor = const Color(0xFFFF3B30),
   });
+  /// Color del círculo de «hoy» (los widgets usan su color de acento).
+  final Color todayColor;
   final DateTime month;
   /// Doble clic en un día (widgets: abre la app con el formulario de nuevo evento).
   final ValueChanged<DateTime>? onDoubleTap;
@@ -319,7 +322,7 @@ class MiniMonth extends StatelessWidget {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isToday ? const Color(0xFFFF3B30) : (isSel ? t.pill : Colors.transparent),
+                          color: isToday ? todayColor : (isSel ? t.pill : Colors.transparent),
                         ),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,

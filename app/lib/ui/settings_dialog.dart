@@ -404,19 +404,19 @@ class _SettingsDialogState extends State<SettingsDialog> {
     const names = {'calendar': 'Solo calendario', 'agenda': 'Calendario y eventos', 'tasks': 'Tareas'};
     final s = store.settings;
     final t = context.tk;
-    Widget scaleSlider(String k) => Row(children: [
+    Widget textSlider(String key) => Row(children: [
           Expanded(
             child: Slider(
-              value: s.widgetFontScales[k]!.clamp(0.7, 1.6),
+              value: s.widgetText[key]!.clamp(0.7, 2.0),
               min: 0.7,
-              max: 1.6,
-              divisions: 18,
-              label: '${(s.widgetFontScales[k]! * 100).round()} %',
-              onChanged: (v) => setState(() => s.widgetFontScales[k] = (v * 20).round() / 20),
+              max: 2.0,
+              divisions: 26,
+              label: '${(s.widgetText[key]! * 100).round()} %',
+              onChanged: (v) => setState(() => s.widgetText[key] = (v * 20).round() / 20),
               onChangeEnd: (_) => s.save(),
             ),
           ),
-          SizedBox(width: 48, child: Text('${(s.widgetFontScales[k]! * 100).round()} %', textAlign: TextAlign.right)),
+          SizedBox(width: 48, child: Text('${(s.widgetText[key]! * 100).round()} %', textAlign: TextAlign.right)),
         ]);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _title('Widgets de escritorio',
@@ -451,9 +451,48 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   },
                 ),
               ),
-            _row('Tamaño del texto', scaleSlider(k)),
+            for (final e in widgetTextKeys.entries.where((e) => e.value.$1 == k)) _row('Texto: ${e.value.$2.toLowerCase()}', textSlider(e.key)),
           ]),
         ),
+      const SizedBox(height: 8),
+      _title('Apariencia de los widgets'),
+      _row(
+        'Transparencia del fondo',
+        Row(children: [
+          Expanded(
+            child: Slider(
+              value: s.widgetTransparency.toDouble(),
+              min: 0,
+              max: 90,
+              divisions: 18,
+              label: '${s.widgetTransparency} %',
+              onChanged: (v) => setState(() => s.widgetTransparency = v.round()),
+              onChangeEnd: (_) => s.save(),
+            ),
+          ),
+          SizedBox(width: 48, child: Text('${s.widgetTransparency} %', textAlign: TextAlign.right)),
+        ]),
+      ),
+      _row(
+        'Color de acento',
+        Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          ChoiceChip(
+            label: const Text('Automático'),
+            selected: s.widgetAccent == null,
+            onSelected: (_) {
+              setState(() => s.widgetAccent = null);
+              s.save();
+            },
+          ),
+          ColorRow(
+            value: s.widgetAccent == null ? Colors.transparent : parseHex(s.widgetAccent),
+            onChanged: (c) {
+              setState(() => s.widgetAccent = toHex(c));
+              s.save();
+            },
+          ),
+        ]),
+      ),
       const SizedBox(height: 8),
       _title('Fuente de los widgets'),
       _row('Fuente', _fontPicker(context)),

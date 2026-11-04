@@ -28,10 +28,26 @@ String widgetTitle(String kind) => 'CalendarioWidget-$kind';
 final _themes = <String, ThemeData>{};
 
 /// Temas por fuente (se crean una vez: reconstruirlos en cada refresco provocaba repintados).
-ThemeData _theme(bool dark, String? font) => _themes.putIfAbsent(
-      '$dark|${font ?? ''}',
-      () => buildTheme(dark ? Tokens.darkTokens : Tokens.light, fontFamily: font).copyWith(scaffoldBackgroundColor: Colors.transparent),
-    );
+ThemeData _theme(bool dark, String? font, String? accent) => _themes.putIfAbsent('$dark|${font ?? ''}|${accent ?? ''}', () {
+      var tokens = dark ? Tokens.darkTokens : Tokens.light;
+      if (accent != null) tokens = tokens.withAccent(parseHex(accent));
+      return buildTheme(tokens, fontFamily: font).copyWith(scaffoldBackgroundColor: Colors.transparent);
+    });
+
+/// Tamaño de texto de una parte del widget (Ajustes › Widgets).
+double _ts(AppStore store, String key) => (store.settings.widgetText[key] ?? 1.0).clamp(0.7, 2.0);
+
+/// Color de acento del widget, o el color propio del calendario (rojo) si no se ha elegido.
+Color _accentOr(AppStore store, Color fallback) => store.settings.widgetAccent == null ? fallback : parseHex(store.settings.widgetAccent);
+
+/// Aplica un tamaño de texto a una parte del widget.
+class _TS extends StatelessWidget {
+  const _TS(this.scale, this.child);
+  final double scale;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)), child: child);
+}
 
 /// Clave de un monitor: nombre + resolución física + escala (sirve también al cambiar de equipo con un USB).
 String monitorKey(Display d) {
@@ -172,12 +188,9 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
       final s = Settings.load();
       if (!s.widgets[widget.kind]!.enabled) exit(0);
       final cur = widget.store.settings;
-      if (s.themeMode != cur.themeMode || s.widgetFont != cur.widgetFont || s.widgetFontScale != cur.widgetFontScale) {
-        setState(() {
-          cur.themeMode = s.themeMode;
-          cur.widgetFont = s.widgetFont;
-          cur.widgetFontScale = s.widgetFontScale;
-        });
+      if (s.widgetSignature != cur.widgetSignature) {
+        s.vaultPath = cur.vaultPath;
+        setState(() => widget.store.settings = s);
       }
     } catch (_) {}
   }
@@ -218,115 +231,58 @@ class _DesktopWidgetAppState extends State<DesktopWidgetApp> with WindowListener
   Widget build(BuildContext context) {
     final mode = switch (widget.store.settings.themeMode) { 'light' => ThemeMode.light, 'dark' => ThemeMode.dark, _ => ThemeMode.system };
     // El MaterialApp no se reconstruye con cada refresco de datos: solo el contenido del widget.
-    final font = widget.store.settings.widgetFont;
-    final scale = (widget.store.settings.widgetFontScales[widget.kind] ?? 1.0).clamp(0.7, 1.6);
+    final st = widget.store.settings;
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: _theme(false, font),
-      darkTheme: _theme(true, font),
+      theme: _theme(false, st.widgetFont, st.widgetAccent),
+      darkTheme: _theme(true, st.widgetFont, st.widgetAccent),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
       localizationsDelegates: const [SpanishMaterialDelegate()],
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale.toDouble())),
-        child: child!,
-      ),
       home: Scaffold(
         backgroundColor: Colors.transparent,
+        // Sin escalar el contenido: al cambiar el tamaño de la ventana hay más o menos espacio real.
+        // El tamaño del texto se elige en Ajustes › Widgets.
         body: DragToResizeArea(
           resizeEdgeSize: 6,
-          child: _Scaled(
-            base: widgetSizes[widget.kind] ?? const Size(320, 320),
-            // Las listas (eventos, tareas) escalan solo con el ancho: al bajar la altura se hace scroll, sin encoger la letra.
-            widthOnly: widget.kind != 'calendar',
-            child: _Glass(
-          child: ListenableBuilder(
-            listenable: widget.store,
-            builder: (context, _) => widget.store.unlocked
-                ? switch (widget.kind) {
-                    'agenda' => _AgendaWidget(store: widget.store),
-                    'tasks' => _TasksWidget(store: widget.store),
-                    _ => _CalendarWidget(store: widget.store),
-                  }
-                : _LockedWidget(store: widget.store, error: widget.initialError),
-          ),
+          child: _Glass(
+            transparency: st.widgetTransparency,
+            child: ListenableBuilder(
+              listenable: widget.store,
+              builder: (context, _) => widget.store.unlocked
+                  ? switch (widget.kind) {
+                      'agenda' => _AgendaWidget(store: widget.store),
+                      'tasks' => _TasksWidget(store: widget.store),
+                      _ => _CalendarWidget(store: widget.store),
+                    }
+                  : _LockedWidget(store: widget.store, error: widget.initialError),
             ),
           ),
         ),
       ),
     );
   }
-}
-
-/// Escala el contenido según el tamaño de la ventana (diseñado para `base`).
-/// `widthOnly`: la escala depende solo del ancho; la altura sobrante o que falta la absorbe el scroll.
-class _Scaled extends StatelessWidget {
-  const _Scaled({required this.base, required this.child, this.widthOnly = false});
-  final Size base;
-  final Widget child;
-  final bool widthOnly;
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
-        final sw = c.maxWidth / base.width;
-        final sh = c.maxHeight / base.height;
-        final s = (widthOnly ? sw : (sw < sh ? sw : sh)).clamp(0.5, 3.0);
-        return FittedBox(
-          fit: BoxFit.fill,
-          child: SizedBox(width: c.maxWidth / s, height: c.maxHeight / s, child: child),
-        );
-      });
 }
 
 class _Glass extends StatelessWidget {
-  const _Glass({required this.child});
+  const _Glass({required this.child, this.transparency = 10});
   final Widget child;
+  /// Transparencia del fondo en % (0 = opaco).
+  final int transparency;
   @override
   Widget build(BuildContext context) {
     final t = context.tk;
+    final alpha = (1 - transparency / 100).clamp(0.1, 1.0);
     return Container(
       decoration: BoxDecoration(
-        color: (t.dark ? const Color(0xFF202024) : Colors.white).withValues(alpha: .9),
+        color: (t.dark ? const Color(0xFF202024) : Colors.white).withValues(alpha: alpha),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: t.dark ? const Color(0x1AFFFFFF) : const Color(0xB3FFFFFF)),
+        border: Border.all(color: (t.dark ? Colors.white : Colors.white).withValues(alpha: t.dark ? .10 * alpha : .7 * alpha)),
       ),
-      child: Stack(children: [
-        Positioned.fill(child: Padding(padding: const EdgeInsets.all(16), child: child)),
-        // Asa para cambiar el tamaño (también se puede desde cualquier borde).
-        Positioned(
-          right: 4,
-          bottom: 4,
-          child: Tooltip(
-            message: 'Arrastra para cambiar el tamaño',
-            child: MouseRegion(
-              cursor: SystemMouseCursors.resizeDownRight,
-              child: GestureDetector(
-                onPanStart: (_) => windowManager.startResizing(ResizeEdge.bottomRight),
-                child: SizedBox(width: 16, height: 16, child: CustomPaint(painter: _GripPainter(t.faint.withValues(alpha: .6)))),
-              ),
-            ),
-          ),
-        ),
-      ]),
+      padding: const EdgeInsets.all(16),
+      child: child,
     );
   }
-}
-
-class _GripPainter extends CustomPainter {
-  _GripPainter(this.color);
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = color
-      ..strokeWidth = 1.4
-      ..strokeCap = StrokeCap.round;
-    for (final o in [4.0, 8.0, 12.0]) {
-      canvas.drawLine(Offset(size.width - 2, size.height - 2 - o), Offset(size.width - 2 - o, size.height - 2), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_GripPainter old) => old.color != color;
 }
 
 /// Pide a la ventana principal una acción (si no está abierta, la abre con el argumento equivalente).
@@ -361,10 +317,13 @@ class _Header extends StatelessWidget {
     final t = context.tk;
     return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
       Expanded(
-        child: DragToMoveArea(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 30),
-            child: Align(alignment: Alignment.centerLeft, child: child),
+        child: GestureDetector(
+          onSecondaryTapDown: (d) => _widgetMenu(context, d.globalPosition, kind),
+          child: DragToMoveArea(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 30),
+              child: Align(alignment: Alignment.centerLeft, child: child),
+            ),
           ),
         ),
       ),
@@ -384,27 +343,27 @@ class _Header extends StatelessWidget {
             ),
           ),
         ),
-      PopupMenuButton<String>(
-        tooltip: 'Opciones del widget',
-        iconSize: 16,
-        padding: EdgeInsets.zero,
-        icon: Icon(Icons.push_pin_outlined, color: t.sec),
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'open', child: Text('Abrir Calendario y Tareas')),
-          PopupMenuItem(value: 'close', child: Text('Quitar del escritorio')),
-        ],
-        onSelected: (v) async {
-          if (v == 'open') {
-            await _askApp({'action': 'show'}, const []);
-          } else {
-            final s = Settings.load();
-            s.widgets[kind]!.enabled = false;
-            s.save();
-            exit(0);
-          }
-        },
-      ),
     ]);
+  }
+}
+
+/// Menú del widget con clic derecho en la cabecera: abrir la app o quitar el widget.
+Future<void> _widgetMenu(BuildContext context, Offset pos, String kind) async {
+  final v = await showMenu<String>(
+    context: context,
+    position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
+    items: const [
+      PopupMenuItem(value: 'open', child: Text('Abrir Calendario y Tareas')),
+      PopupMenuItem(value: 'close', child: Text('Quitar del escritorio')),
+    ],
+  );
+  if (v == 'open') {
+    await _askApp({'action': 'show'}, const []);
+  } else if (v == 'close') {
+    final s = Settings.load();
+    s.widgets[kind]!.enabled = false;
+    s.save();
+    exit(0);
   }
 }
 
@@ -522,9 +481,9 @@ Map<String, Color> _dots(AppStore store, DateTime month) {
   return dots;
 }
 
-Widget _monthTitle(DateTime m, BuildContext context) => Text.rich(
+Widget _monthTitle(DateTime m, BuildContext context, [Color color = const Color(0xFFFF3B30)]) => Text.rich(
       TextSpan(children: [
-        TextSpan(text: monthNames[m.month - 1].toUpperCase(), style: const TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700, letterSpacing: .5)),
+        TextSpan(text: monthNames[m.month - 1].toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.w700, letterSpacing: .5)),
         TextSpan(text: '  ${m.year}', style: TextStyle(color: context.tk.sec)),
       ]),
       style: const TextStyle(fontSize: 13),
@@ -544,31 +503,41 @@ class _CalendarWidget extends StatefulWidget {
 class _CalendarWidgetState extends State<_CalendarWidget> {
   DateTime month = startOfMonth(DateTime.now());
   @override
-  Widget build(BuildContext context) => Column(children: [
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    final accent = _accentOr(store, const Color(0xFFFF3B30));
+    return Column(children: [
+      _TS(
+        _ts(store, 'calendar.title'),
         _Header(
           kind: 'calendar',
           actions: [
             IconButton(tooltip: 'Mes anterior', iconSize: 16, visualDensity: VisualDensity.compact, onPressed: () => setState(() => month = addMonths(month, -1)), icon: const Icon(Icons.chevron_left_rounded)),
             IconButton(tooltip: 'Mes siguiente', iconSize: 16, visualDensity: VisualDensity.compact, onPressed: () => setState(() => month = addMonths(month, 1)), icon: const Icon(Icons.chevron_right_rounded)),
           ],
-          child: _monthTitle(month, context),
+          child: _monthTitle(month, context, accent),
         ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: LayoutBuilder(builder: (context, c) {
-            // Celdas que caben en el espacio disponible (la cabecera puede crecer con la letra).
-            final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.6) ? c.maxWidth / 7 : c.maxHeight / 7.6).clamp(18.0, 80.0);
+      ),
+      const SizedBox(height: 4),
+      Expanded(
+        child: _TS(
+          _ts(store, 'calendar.body'),
+          LayoutBuilder(builder: (context, c) {
+            // Celdas que caben en el espacio disponible (crecen al ensanchar o alargar el widget).
+            final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.6) ? c.maxWidth / 7 : c.maxHeight / 7.6).clamp(16.0, 120.0);
             return Align(
               alignment: Alignment.topCenter,
               child: Tooltip(
                 message: 'Doble clic en un día para añadir un evento',
                 waitDuration: const Duration(seconds: 1),
-                child: MiniMonth(month: month, showHeader: false, cell: cell, dots: _dots(widget.store, month), onPick: (_) {}, onDoubleTap: openAppOn),
+                child: MiniMonth(month: month, showHeader: false, cell: cell, dots: _dots(store, month), onPick: (_) {}, onDoubleTap: openAppOn, todayColor: accent),
               ),
             );
           }),
         ),
-      ]);
+      ),
+    ]);
+  }
 }
 
 // ------------------------------------------------------------------ calendario + eventos
@@ -613,49 +582,81 @@ class _AgendaWidgetState extends State<_AgendaWidget> {
     }
 
     final title = days == 1 && sameDay(day, DateTime.now()) ? 'Hoy, ${weekdayLong[day.weekday - 1]} ${day.day}' : (sameDay(day, DateTime.now()) ? _rangeLabel(days) : '${capitalize(shortDate(day))} · ${_rangeLabel(days).toLowerCase()}');
+    final accent = _accentOr(store, const Color(0xFFFF3B30));
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SizedBox(
-        width: 7 * 33,
-        child: SingleChildScrollView(
-          child: Column(children: [
-            DragToMoveArea(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 30), child: Align(alignment: Alignment.centerLeft, child: _monthTitle(month, context)))),
-            MiniMonth(
-              month: month,
-              showHeader: false,
-              cell: 33,
-              selected: day,
-              onDoubleTap: openAppOn,
-              onPick: (d) => setState(() {
-                day = d;
-                if (d.month != month.month) month = startOfMonth(d);
+      // Calendario: ocupa el 40 % del ancho y sus celdas se adaptan al espacio.
+      Expanded(
+        flex: 4,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _TS(
+            _ts(store, 'agenda.calTitle'),
+            GestureDetector(
+              onSecondaryTapDown: (d) => _widgetMenu(context, d.globalPosition, 'agenda'),
+              child: DragToMoveArea(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 30),
+                  child: Align(alignment: Alignment.centerLeft, child: _monthTitle(month, context, accent)),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _TS(
+              _ts(store, 'agenda.calBody'),
+              LayoutBuilder(builder: (context, c) {
+                final cell = ((c.maxWidth / 7) < (c.maxHeight / 7.3) ? c.maxWidth / 7 : c.maxHeight / 7.3).clamp(16.0, 90.0);
+                return SingleChildScrollView(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: MiniMonth(
+                      month: month,
+                      showHeader: false,
+                      cell: cell,
+                      selected: day,
+                      todayColor: accent,
+                      onDoubleTap: openAppOn,
+                      onPick: (d) => setState(() {
+                        day = d;
+                        if (d.month != month.month) month = startOfMonth(d);
+                      }),
+                    ),
+                  ),
+                );
               }),
             ),
-          ]),
-        ),
+          ),
+        ]),
       ),
       Container(width: 1, margin: const EdgeInsets.symmetric(horizontal: 14), color: t.border),
       Expanded(
+        flex: 6,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _Header(
-            kind: 'agenda',
-            onAdd: () => openAppOn(day),
-            addTooltip: 'Nuevo evento',
-            child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          _TS(
+            _ts(store, 'agenda.listTitle'),
+            _Header(
+              kind: 'agenda',
+              onAdd: () => openAppOn(day),
+              addTooltip: 'Nuevo evento',
+              child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
           ),
           const SizedBox(height: 6),
           Expanded(
-            child: occ.isEmpty
-                ? Padding(padding: const EdgeInsets.only(top: 8), child: Text('Sin eventos', style: TextStyle(color: t.faint)))
-                : ListView(children: [
-                    for (final g in groups.entries) ...[
-                      if (days > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, bottom: 6),
-                          child: Text(_dayHeader(DateTime.parse(g.key)), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: t.sec)),
-                        ),
-                      ...g.value.map(item),
-                    ],
-                  ]),
+            child: _TS(
+              _ts(store, 'agenda.listBody'),
+              occ.isEmpty
+                  ? Padding(padding: const EdgeInsets.only(top: 8), child: Text('Sin eventos', style: TextStyle(color: t.faint)))
+                  : ListView(children: [
+                      for (final g in groups.entries) ...[
+                        if (days > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4, bottom: 6),
+                            child: Text(_dayHeader(DateTime.parse(g.key)), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: t.sec)),
+                          ),
+                        ...g.value.map(item),
+                      ],
+                    ]),
+            ),
           ),
         ]),
       ),
@@ -678,21 +679,26 @@ class _TasksWidget extends StatelessWidget {
         ? store.tasks(const TaskScope.smart('today'))
         : (Core.call('tasks.list', {'filter': {'smart': 'upcoming', 'until': until}}) as List).map((o) => TaskNode.fromJson(o as Map<String, dynamic>)).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _Header(
-        kind: 'tasks',
-        onAdd: openAppNewTask,
-        addTooltip: 'Nueva tarea',
-        child: Row(children: [
-          Container(width: 24, height: 24, decoration: const BoxDecoration(color: Color(0xFF007AFF), shape: BoxShape.circle), child: const Icon(Icons.check_rounded, size: 14, color: Colors.white)),
-          const SizedBox(width: 8),
-          Flexible(child: Text('Tareas · ${_rangeLabel(days)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
-          const SizedBox(width: 6),
-          Text('${nodes.length}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF007AFF))),
-        ]),
+      _TS(
+        _ts(store, 'tasks.title'),
+        _Header(
+          kind: 'tasks',
+          onAdd: openAppNewTask,
+          addTooltip: 'Nueva tarea',
+          child: Row(children: [
+            Container(width: 24, height: 24, decoration: BoxDecoration(color: t.accent, shape: BoxShape.circle), child: const Icon(Icons.check_rounded, size: 14, color: Colors.white)),
+            const SizedBox(width: 8),
+            Flexible(child: Text('Tareas · ${_rangeLabel(days)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+            const SizedBox(width: 6),
+            Text('${nodes.length}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: t.accent)),
+          ]),
+        ),
       ),
       const SizedBox(height: 6),
       Expanded(
-        child: nodes.isEmpty
+        child: _TS(
+          _ts(store, 'tasks.body'),
+          nodes.isEmpty
             ? Center(child: Text(days == 1 ? 'Nada pendiente para hoy' : 'Nada pendiente', style: TextStyle(color: t.faint)))
             : ListView(children: [
                 for (final n in nodes)
@@ -719,6 +725,7 @@ class _TasksWidget extends StatelessWidget {
                     ]),
                   ),
               ]),
+        ),
       ),
     ]);
   }
